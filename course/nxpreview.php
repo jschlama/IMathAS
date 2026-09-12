@@ -58,6 +58,10 @@ $data = array_merge([
 $GLOBALS['myrights'] = 100;
 $GLOBALS['userid'] = 0;
 $myrights = 100;
+// Display prefs the math/graph filter reads (1 = normal SVG + MathJax, not image fallback).
+// Assigning $_SESSION without a session is fine — preview needs no persistence.
+$_SESSION['graphdisp'] = 1;
+$_SESSION['mathdisp'] = 1;
 
 $qn = 27;
 $seed = isset($_POST['seed']) ? intval($_POST['seed']) : rand(0, 10000);
