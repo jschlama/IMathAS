@@ -1,0 +1,5 @@
+.git
+.github
+config.php
+node_modules
+tests
