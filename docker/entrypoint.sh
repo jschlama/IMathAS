@@ -4,6 +4,16 @@
 set -e
 cd /var/www/html
 
+# Exactly one Apache MPM, enforced at start (apt's apache2 update re-enables mpm_event;
+# Apache refuses to start with two). Printed so the deploy log shows what was loaded.
+echo "apache mods-enabled MPMs before: $(ls /etc/apache2/mods-enabled | grep -i mpm | tr '\n' ' ')"
+for m in mpm_event mpm_worker; do
+  if [ -e "/etc/apache2/mods-enabled/$m.load" ] || [ -e "/etc/apache2/mods-enabled/$m.conf" ]; then a2dismod -q "$m" || true; fi
+done
+a2enmod -q mpm_prefork >/dev/null 2>&1 || true
+echo "apache mods-enabled MPMs after: $(ls /etc/apache2/mods-enabled | grep -i mpm | tr '\n' ' ')"
+echo "apache LoadModule mpm lines: $(grep -rl 'mpm_' /etc/apache2/*.conf /etc/apache2/conf-enabled /etc/apache2/sites-enabled 2>/dev/null | tr '\n' ' ')"
+
 : "${DB_HOST:?DB_HOST is required}"
 : "${DB_NAME:?DB_NAME is required}"
 : "${DB_USER:?DB_USER is required}"
