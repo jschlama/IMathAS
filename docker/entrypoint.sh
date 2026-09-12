@@ -48,6 +48,10 @@ error_reporting(E_ALL & ~E_NOTICE & ~E_DEPRECATED);
 \$allowcourseimport = true;
 \$allowmacroinstall = true;
 \$CFG['GEN']['newpasswords'] = 'only';
+// Scope the session cookie to the FULL host. The default (-2) would use the last two
+// host parts — here ".railway.app", a public suffix the browser refuses, so the session
+// cookie is dropped and every login bounces back to the login page.
+\$CFG['GEN']['domainlevel'] = 0;
 try {
   \$DBH = new PDO("mysql:host=${DB_HOST};port=${DB_PORT};dbname=${DB_NAME}", \$dbusername, \$dbpassword);
   \$DBH->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_WARNING);
