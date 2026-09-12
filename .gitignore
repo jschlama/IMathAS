@@ -6,3 +6,7 @@
 *.js~
 mathjax-b
 HTMLPurifier
+
+# local install (fork)
+config.php
+*.log
