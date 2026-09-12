@@ -53,6 +53,12 @@ $data = array_merge([
     'extref' => $_POST['extref'] ?? null
 ], fn($v) => $v !== null));
 
+// The engine's macro parser reads a few globals a login would normally set. This is a
+// teacher-only, HMAC-authorised preview, so give it instructor-level context.
+$GLOBALS['myrights'] = 100;
+$GLOBALS['userid'] = 0;
+$myrights = 100;
+
 $qn = 27;
 $seed = isset($_POST['seed']) ? intval($_POST['seed']) : rand(0, 10000);
 $a2 = new AssessStandalone($DBH);
