@@ -29,21 +29,29 @@ if (!is_array($payload) || ($payload['exp'] ?? 0) < time() || ($payload['purpose
     http_response_code(401); exit('Token expired or wrong purpose.');
 }
 
-// Build a question-set row from the posted fields; unset columns fall back to harmless defaults.
+// Build a full imas_questionset row from the posted fields. Every column is defaulted so the
+// engine (which expects a SELECT * row) never hits an undefined key — a stray warning here
+// prints before the headers and corrupts the response.
 $s = fn($k) => (string) ($_POST[$k] ?? '');
-$data = [
-    'id' => 0,
-    'qtype' => $s('qtype') !== '' ? $s('qtype') : 'multipart',
-    'control' => $s('control'),
-    'qcontrol' => $s('qcontrol'),
-    'qtext' => $s('qtext'),
-    'answer' => $s('answer'),
-    'solution' => $s('solution'),
-    'extref' => $s('extref'),
-    'hasimg' => 0,
-    'ancestors' => '',
-    'points' => 1
-];
+$data = array_merge([
+    'id' => 0, 'uniqueid' => 0, 'adddate' => 0, 'lastmoddate' => 0, 'ownerid' => 0,
+    'author' => '', 'userights' => 2, 'license' => 1, 'description' => '',
+    'qtype' => 'multipart', 'control' => '', 'qcontrol' => '', 'qtext' => '',
+    'answer' => '', 'solution' => '', 'extref' => '', 'hasimg' => 0, 'deleted' => 0,
+    'avgtime' => 0, 'ancestors' => '', 'ancestorauthors' => '', 'otherattribution' => '',
+    'importuid' => '', 'replaceby' => 0, 'broken' => 0, 'solutionopts' => 0,
+    'sourceinstall' => '', 'meantimen' => 0, 'meantime' => 0, 'vartime' => 0,
+    'meanscoren' => 0, 'meanscore' => 0, 'varscore' => 0, 'isrand' => 0,
+    'a11yalt' => 0, 'a11yalttype' => 0, 'a11ystatus' => 0, 'points' => 1
+], array_filter([
+    'qtype' => $s('qtype') !== '' ? $s('qtype') : null,
+    'control' => $_POST['control'] ?? null,
+    'qcontrol' => $_POST['qcontrol'] ?? null,
+    'qtext' => $_POST['qtext'] ?? null,
+    'answer' => $_POST['answer'] ?? null,
+    'solution' => $_POST['solution'] ?? null,
+    'extref' => $_POST['extref'] ?? null
+], fn($v) => $v !== null));
 
 $qn = 27;
 $seed = isset($_POST['seed']) ? intval($_POST['seed']) : rand(0, 10000);
