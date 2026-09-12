@@ -7,7 +7,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libpng-dev libjpeg62-turbo-dev libfreetype6-dev libzip-dev libicu-dev libonig-dev unzip \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install -j"$(nproc)" gd mbstring pdo_mysql zip intl \
-    && a2enmod rewrite headers \
+    # apt's apache2 update re-enables the default event MPM beside the image's prefork;
+    # Apache refuses to start with two ("More than one MPM loaded"), so pick one explicitly.
+    && (a2dismod -q mpm_event mpm_worker || true) \
+    && a2enmod -q mpm_prefork rewrite headers \
     && rm -rf /var/lib/apt/lists/*
 
 # Railway terminates TLS; trust its X-Forwarded-Proto so IMathAS builds https URLs.
