@@ -51,6 +51,7 @@ $first = (string) ($payload['firstName'] ?? '');
 $last = (string) ($payload['lastName'] ?? '');
 $email = (string) ($payload['email'] ?? '');
 $tzoffset = (float) ($payload['tzoffset'] ?? 0);
+$lticourseid = (int) ($payload['ltiCourseId'] ?? 0);
 if ($sub === '' || $courseid === 0 || $aid === 0) {
     http_response_code(400);
     exit('Hand-off token is missing required fields.');
@@ -80,10 +81,16 @@ if ($role === 'instructor') {
         $DBH->prepare('INSERT INTO imas_teachers (userid,courseid) VALUES (?,?)')->execute([$userid, $courseid]);
     }
 } else {
-    $stm = $DBH->prepare('SELECT id FROM imas_students WHERE userid=? AND courseid=?');
+    // Enrol the student and stamp lticourseid so IMathAS's passback can build the sourcedid
+    // (AssessUtils::formLTIsourcedId needs imas_students.lticourseid; trace §3.4).
+    $stm = $DBH->prepare('SELECT id,lticourseid FROM imas_students WHERE userid=? AND courseid=?');
     $stm->execute([$userid, $courseid]);
-    if ($stm->fetchColumn() === false) {
-        $DBH->prepare('INSERT INTO imas_students (userid,courseid,section) VALUES (?,?,?)')->execute([$userid, $courseid, '']);
+    $srow = $stm->fetch(PDO::FETCH_ASSOC);
+    if ($srow === false) {
+        $DBH->prepare('INSERT INTO imas_students (userid,courseid,section,lticourseid) VALUES (?,?,?,?)')
+            ->execute([$userid, $courseid, '', $lticourseid]);
+    } else if ($lticourseid > 0 && (int) $srow['lticourseid'] !== $lticourseid) {
+        $DBH->prepare('UPDATE imas_students SET lticourseid=? WHERE id=?')->execute([$lticourseid, $srow['id']]);
     }
 }
 
