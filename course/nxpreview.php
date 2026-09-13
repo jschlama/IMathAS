@@ -104,6 +104,7 @@ $sr = $staticroot;
 $scripts = [
     "$sr/mathquill/mathquill.min.js?v=070726",
     "$sr/javascript/drawing.js?v=041920",
+    "$sr/javascript/general.js",
     "$sr/javascript/AMhelpers2.js?v=071122",
     "$sr/javascript/eqntips.js?v=041920",
     "$sr/mathquill/AMtoMQ.js?v=071122",
@@ -142,9 +143,12 @@ if (!empty($disp['errors'])) {
     foreach ($disp['errors'] as $e) echo '<li>' . Sanitize::encodeStringForDisplay(is_array($e) ? implode(' ', $e) : $e) . '</li>';
     echo '</ul></div>';
 }
-echo '<form class="questionwrap" onsubmit="return false">';
+// initq() resolves its container with getElementById('questionwrap'.$qn) and hands it to
+// every initialiser; without the id it is null, initq throws at the first one, and the
+// answer widgets (MathQuill et al) are never started — silently, inside the try/catch below.
+echo '<form class="questionwrap" onsubmit="return false"><div id="questionwrap' . $qn . '">';
 echo $disp['html'];
-echo '</form>';
+echo '</div></form>';
 echo '<p class="small subdued" style="color:#666">Seed ' . intval($seed) . '</p>';
 echo '<script>if (typeof initq==="function") { try { initq(' . $qn . ',' . json_encode($disp['jsparams']) . '); } catch(e){ console.error(e); } }</script>';
 echo '</body></html>';
