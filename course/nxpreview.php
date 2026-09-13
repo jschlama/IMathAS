@@ -118,9 +118,14 @@ echo '<link rel="stylesheet" type="text/css" href="' . $sr . '/imascore.css">';
 echo '<link rel="stylesheet" type="text/css" href="' . $sr . '/mathquill/mathquill-basic.css?v=070726">';
 echo '<link rel="stylesheet" type="text/css" href="' . $sr . '/mathquill/mqeditor.css?v=020226">';
 // Math rendering — mirror header.php's KaTeX branch ($_SESSION['mathdisp']==6) so
-// backtick AsciiMath in the question typesets. initq() calls window.rendermathnode(),
-// which katex/auto-render.js defines; load the renderer, mathparser and ASCIIsvg
-// (graphdisp=1) here so they are ready before assess2supp.js runs initq below.
+// backtick AsciiMath in the question typesets. initq() calls window.rendermathnode()
+// (defined by katex/auto-render.js), which converts AsciiMath with AMTparseAMtoTeX
+// from ASCIIMathTeXImg_min.js — header.php loads that for mathdisp==6, and without
+// it KaTeX throws and the math stays raw. jQuery is needed by setupKatexAutoRender.
+// mathparser + ASCIIsvg (graphdisp=1) load too. All before assess2supp.js runs initq.
+echo '<script src="' . $sr . '/javascript/jquery.min.js"></script>';
+echo '<script>var AMTcgiloc = "' . ($mathimgurl ?? '') . '";</script>';
+echo '<script src="' . $sr . '/javascript/ASCIIMathTeXImg_min.js?ver=061426"></script>';
 echo '<script src="' . $sr . '/katex/katex.min.js"></script>';
 echo '<link rel="stylesheet" href="' . $sr . '/katex/katex.min.css">';
 echo '<script src="' . $sr . '/katex/auto-render.js?v=111025"></script>';
