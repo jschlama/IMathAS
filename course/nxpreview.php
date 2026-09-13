@@ -65,6 +65,10 @@ $_SESSION['mathdisp'] = 1;
 
 $qn = 27;
 $seed = isset($_POST['seed']) ? intval($_POST['seed']) : rand(0, 10000);
+// JSON mode powers the authoring UI's seed-sweep: instead of the HTML page it
+// returns the engine-resolved correct answer(s) + any render errors for this
+// seed, so the new app can validate a draft across many randomizations.
+$jsonMode = (($_POST['format'] ?? '') === 'json');
 $a2 = new AssessStandalone($DBH);
 $a2->setQuestionData(0, $data);
 $a2->setState([
@@ -74,7 +78,26 @@ $a2->setState([
     'scorenonzero' => [($qn + 1) => -1], 'scoreiscorrect' => [($qn + 1) => -1],
     'partattemptn' => [$qn => []], 'rawscores' => [$qn => []]
 ]);
-$disp = $a2->displayQuestion($qn, ['showans' => !empty($_POST['showans']), 'showteachernotes' => true]);
+// includeans populates jsparams['ans'] (Question::getCorrectAnswersForParts) — the
+// sweep's oracle. Also on when the teacher asked to see the answer in the preview.
+$disp = $a2->displayQuestion($qn, [
+    'showans' => ($jsonMode || !empty($_POST['showans'])),
+    'includeans' => ($jsonMode || !empty($_POST['showans'])),
+    'showteachernotes' => true
+]);
+
+if ($jsonMode) {
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode([
+        'seed' => intval($seed),
+        'ans' => $disp['jsparams']['ans'] ?? null,
+        'errors' => array_map(
+            fn($e) => is_array($e) ? implode(' ', $e) : (string) $e,
+            $disp['errors'] ?? []
+        )
+    ]);
+    exit;
+}
 
 $sr = $staticroot;
 $scripts = [
