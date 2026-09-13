@@ -72,10 +72,14 @@ body.nx-player #app .home {
 
 /* ---- the red bar -------------------------------------------------------------------- */
 
-/* Three views put a different element at the top of the column -- Skip/Full/Drill an
-   #assess-header, Summary a .headerpane of its own, Launch/Closed a bare <h1> (further
-   down) -- and all three are the same bar, so it is spelled once here and they opt in. */
-body.nx-player #app .home > .headerpane {
+/* Several views put a different element at the top of the column -- Skip/Full/Drill an
+   #assess-header, Summary/ShowWork/Print one of their own, Launch/Closed a bare <h1>
+   (further down) -- and they are all the same bar, so it is spelled once here.
+   .assess-header is the hook, NOT .headerpane: every real title bar carries both, but
+   .headerpane alone is also on two things that are emphatically not title bars and were
+   painted red by it -- Print's toolbar <p class="hideonprint headerpane"> and Full's
+   preview notice <p class="headerpane noticetext">. */
+body.nx-player #app .home > .assess-header {
   background: var(--nx-red);
   color: #fff;
   border: 0;
@@ -88,7 +92,7 @@ body.nx-player #app .home > .headerpane {
   align-items: center;
 }
 
-body.nx-player #app .home > .headerpane h1 {
+body.nx-player #app .home > .assess-header h1 {
   margin: 0;
   font-size: 1.25rem;
   font-weight: 650;
@@ -96,48 +100,41 @@ body.nx-player #app .home > .headerpane h1 {
   color: #fff;
 }
 
-/* Summary's bar carries only a title and Resume, so it lays itself out. */
-body.nx-player #app .home > .headerpane:not(.assess-header) {
-  display: flex;
-  flex-flow: row wrap;
-  justify-content: space-between;
-}
-
 /* Score and answered-count: legible on red, which the .subdued grey is not. */
-body.nx-player #app .home > .headerpane .subdued {
+body.nx-player #app .home > .assess-header .subdued {
   color: rgba(255, 255, 255, .85);
 }
 
 /* "Progress saved" and the timer's warning are .noticetext, which imascore.css paints
    #db0000 !important -- a dark red on this bar, i.e. invisible exactly when a student needs
    to read that their work is safe. Only !important outranks !important. */
-body.nx-player #app .home > .headerpane .noticetext {
+body.nx-player #app .home > .assess-header .noticetext {
   color: #fff !important;
 }
 
-body.nx-player #app .home > .headerpane > * {
+body.nx-player #app .home > .assess-header > * {
   margin-right: 0;
 }
 
 /* The header's icons are drawn with stroke="#000" as a presentation attribute, which a
    stylesheet outranks. Scoped to this bar: elsewhere those attributes carry meaning (a
    question's status dot, a green tick on a right answer) and must be left alone. */
-body.nx-player #app .home > .headerpane .svgicon {
+body.nx-player #app .home > .assess-header .svgicon {
   stroke: currentColor;
 }
-body.nx-player #app .home > .headerpane .svgicon polygon[fill],
-body.nx-player #app .home > .headerpane .svgicon circle[fill] {
+body.nx-player #app .home > .assess-header .svgicon polygon[fill],
+body.nx-player #app .home > .assess-header .svgicon circle[fill] {
   fill: currentColor;
 }
 
-body.nx-player #app .home > .headerpane a,
-body.nx-player #app .home > .headerpane a:link,
-body.nx-player #app .home > .headerpane a:visited {
+body.nx-player #app .home > .assess-header a,
+body.nx-player #app .home > .assess-header a:link,
+body.nx-player #app .home > .assess-header a:visited {
   color: #fff;
 }
 
 /* Buttons in the red bar read as buttons on red, not as the page's own primary. */
-body.nx-player #app .home > .headerpane button {
+body.nx-player #app .home > .assess-header button {
   background: rgba(255, 255, 255, .14);
   color: #fff;
   border: 1px solid rgba(255, 255, 255, .45);
@@ -146,16 +143,16 @@ body.nx-player #app .home > .headerpane button {
   font: inherit;
   font-weight: 550;
 }
-body.nx-player #app .home > .headerpane button:enabled:hover,
-body.nx-player #app .home > .headerpane button:focus {
+body.nx-player #app .home > .assess-header button:enabled:hover,
+body.nx-player #app .home > .assess-header button:focus {
   background: rgba(255, 255, 255, .26);
 }
-body.nx-player #app .home > .headerpane button:disabled {
+body.nx-player #app .home > .assess-header button:disabled {
   opacity: .55;
 }
 
 /* The practice notice is a red italic on a red bar otherwise. */
-body.nx-player #app .home > .headerpane .practicenotice {
+body.nx-player #app .home > .assess-header .practicenotice {
   color: var(--nx-gold);
   font-style: normal;
   font-weight: 600;
@@ -163,9 +160,15 @@ body.nx-player #app .home > .headerpane .practicenotice {
 
 /* ---- the question navigation strip --------------------------------------------------- */
 
+/* The three strips that sit directly under the bar, one per navigation style. The names are
+   the components' own roots and were guessed wrong the first time: FullPagedNav is
+   .subheader.pagenav and DrillNavHeader is #drill-question-header, so those two matched
+   nothing and both strips rendered bare on the page background under an attached bar. */
 body.nx-player #skip-question-header,
-body.nx-player #fullpaged-nav,
-body.nx-player .drill-nav-header {
+body.nx-player .subheader.pagenav,
+body.nx-player #drill-question-header {
+  display: flex;
+  flex-flow: row wrap;
   background: var(--nx-surface-2);
   border: 1px solid var(--nx-border);
   border-top: 0;
@@ -213,7 +216,9 @@ body.nx-player .headericons > * {
   margin-left: 0;
 }
 
-body.nx-player #skip-question-header button {
+body.nx-player #skip-question-header button,
+body.nx-player .subheader.pagenav button,
+body.nx-player #drill-question-header button {
   border-radius: var(--nx-radius);
 }
 
@@ -531,12 +536,12 @@ body.nx-player a:hover {
   body.nx-player #app .home {
     margin-bottom: 1rem;
   }
-  body.nx-player #app .home > .headerpane {
+  body.nx-player #app .home > .assess-header {
     margin-top: 0;
     border-radius: 0;
     padding: .5rem .75rem;
   }
-  body.nx-player #app .home > .headerpane h1 {
+  body.nx-player #app .home > .assess-header h1 {
     font-size: 1.1rem;
   }
   body.nx-player .questionwrap.questionpane {
@@ -572,12 +577,12 @@ body.nx-player a:hover {
   body.nx-player {
     background: #fff;
   }
-  body.nx-player #app .home > .headerpane {
+  body.nx-player #app .home > .assess-header {
     background: none;
     color: #000;
     box-shadow: none;
   }
-  body.nx-player #app .home > .headerpane h1 {
+  body.nx-player #app .home > .assess-header h1 {
     color: #000;
   }
   body.nx-player .questionwrap.questionpane,
