@@ -1258,6 +1258,22 @@ class AssessInfo
       'n' => intval($settings['defregenpenalty_after'])
     );
 
+    // LivePoll needs the websocket server from imathas-extras, and the authoring form only
+    // offers the mode when livepollserver is configured -- but an assessment COPIED OR
+    // IMPORTED from an install that had one arrives here carrying displaymethod=livepoll on
+    // a site that does not. Without this it is unplayable and silently so: loadassess.php
+    // builds livepoll_server from the unset key, PHP prints a warning INTO the JSON body,
+    // the client parses null, and every student sits on "Loading..." with nothing on screen
+    // saying why. Fall back exactly as video_cued does below when it has no viddata, so the
+    // assessment is an ordinary one instead of a dead one. Before the block that follows:
+    // once it is not a LivePoll, it must not be forced to that mode's seed and submitby.
+    global $CFG;
+    if ($settings['displaymethod'] === 'livepoll' &&
+        empty($CFG['GEN']['livepollserver'])
+    ) {
+      $settings['displaymethod'] = 'skip';
+    }
+
     // if LivePoll, force all stu same random seed
     // force by-question submission
     if ($settings['displaymethod'] === 'livepoll') {
