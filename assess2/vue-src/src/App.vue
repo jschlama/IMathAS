@@ -1,6 +1,6 @@
 <template>
   <div id="app" role="main">
-    <div v-if="!assessInfoLoaded">
+    <div v-if="!assessInfoLoaded" class="player-loading">
       {{ $t('loading') }}
     </div>
 

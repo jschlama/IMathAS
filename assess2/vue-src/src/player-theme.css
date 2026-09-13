@@ -591,3 +591,20 @@ body.nx-player a:hover {
     border: 0;
   }
 }
+
+/* ---- the loading state ----------------------------------------------------------------- */
+
+/* The first thing every student sees, on every load: App.vue's `<div v-if="!assessInfoLoaded">`.
+   It sits OUTSIDE .home -- the views, and so the column, do not exist until assessInfo lands --
+   so it had no class and no styling at all, and rendered flush in the top-left corner of the
+   page. On a fast local server that is a flash; on a school Chromebook waiting out loadassess
+   it is the page. It takes the column the content will take, so nothing jumps sideways when
+   the view replaces it, and it is deliberately NOT a card: a card appearing and then being
+   replaced by a differently shaped one is a worse first paint than a line of text. */
+body.nx-player #app .player-loading {
+  max-width: var(--nx-col);
+  margin: 0 auto;
+  padding: 3rem 1rem;
+  color: var(--nx-muted);
+  text-align: center;
+}
