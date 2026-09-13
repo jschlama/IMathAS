@@ -1,0 +1,588 @@
+/* The student player's look and feel, on the imathas-nx brand.
+ *
+ * Loaded after assess2.css so it wins the cascade. It restyles what the student sees; it
+ * changes no behaviour, and it must not: every attempt-flow decision (submitby,
+ * displaymethod, tries, penalties, timers, autosave, late passes) stays where it is already
+ * proven.
+ *
+ * EVERY selector here is scoped under body.nx-player, and that is load-bearing rather than
+ * tidy. The build emits ONE stylesheet for two apps -- the student player (index.php) and the
+ * teacher's gradebook view of an attempt (gbviewassess.php) -- and both link it and both
+ * mount on #app, so an unscoped rule restyles a teacher page that is not in scope for this
+ * work and that none of it was checked against. src/main.js, the student entry alone, sets
+ * the class. A new rule that forgets the scope will look right in the player and land on
+ * gbviewassess unseen: the two pages share .scrollpane, .headerpane, .questionpane and the
+ * whole .choice family.
+ *
+ * Brand is the one in imathas-nx src/app.css -- red #b42317, gold #febb30, blue #6797c5 --
+ * so a student and their teacher see one product. The token names are prefixed --nx- because
+ * imascore.css already owns the --mjx-* namespace and this file must not collide with it.
+ *
+ * The rule for reading this file: the engine renders a question's HTML in PHP, so everything
+ * from `.question` inwards is markup we do not author. It is styled here by the class names
+ * the engine emits (.choice, .choicesflexrow, .submitbtnwrap) and those names are the
+ * contract -- see assess2.css, which styles the same ones.
+ */
+
+:root {
+  --nx-red: #b42317;
+  --nx-red-dark: #9a1d13;
+  --nx-gold: #febb30;
+  --nx-blue: #6797c5;
+
+  --nx-bg: #f2eeea;
+  --nx-card: #ffffff;
+  --nx-surface-2: #faf8f6;
+  --nx-ink: #1b1815;
+  --nx-muted: #5f5852;
+  --nx-border: #e5e0da;
+
+  --nx-link: #2f6aa3;
+  --nx-link-hover: #21507e;
+  --nx-ok: #1f7a4d;
+  --nx-ok-bg: #eef8f2;
+
+  --nx-radius: 8px;
+  --nx-radius-lg: 12px;
+  --nx-shadow: 0 1px 2px rgba(0, 0, 0, .06), 0 2px 8px rgba(0, 0, 0, .04);
+  --nx-font: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --nx-col: 62rem;
+}
+
+/* ---- the page ------------------------------------------------------------------------ */
+
+body.nx-player {
+  background: var(--nx-bg);
+  font-family: var(--nx-font);
+  color: var(--nx-ink);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The IMathAS page chrome sits between the body and the app; the player owns the width. */
+body.nx-player .midwrapper {
+  max-width: none;
+}
+
+/* Every view's root, so the column is the same on the intro, the questions and the results. */
+body.nx-player #app .home {
+  max-width: var(--nx-col);
+  margin: 0 auto 2rem;
+}
+
+/* ---- the red bar -------------------------------------------------------------------- */
+
+/* Three views put a different element at the top of the column -- Skip/Full/Drill an
+   #assess-header, Summary a .headerpane of its own, Launch/Closed a bare <h1> (further
+   down) -- and all three are the same bar, so it is spelled once here and they opt in. */
+body.nx-player #app .home > .headerpane {
+  background: var(--nx-red);
+  color: #fff;
+  border: 0;
+  border-radius: var(--nx-radius-lg) var(--nx-radius-lg) 0 0;
+  padding: .6rem 1rem;
+  margin: 1rem 0 0;
+  gap: .75rem;
+  row-gap: .25rem;
+  box-shadow: var(--nx-shadow);
+  align-items: center;
+}
+
+body.nx-player #app .home > .headerpane h1 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: #fff;
+}
+
+/* Summary's bar carries only a title and Resume, so it lays itself out. */
+body.nx-player #app .home > .headerpane:not(.assess-header) {
+  display: flex;
+  flex-flow: row wrap;
+  justify-content: space-between;
+}
+
+/* Score and answered-count: legible on red, which the .subdued grey is not. */
+body.nx-player #app .home > .headerpane .subdued {
+  color: rgba(255, 255, 255, .85);
+}
+
+/* "Progress saved" and the timer's warning are .noticetext, which imascore.css paints
+   #db0000 !important -- a dark red on this bar, i.e. invisible exactly when a student needs
+   to read that their work is safe. Only !important outranks !important. */
+body.nx-player #app .home > .headerpane .noticetext {
+  color: #fff !important;
+}
+
+body.nx-player #app .home > .headerpane > * {
+  margin-right: 0;
+}
+
+/* The header's icons are drawn with stroke="#000" as a presentation attribute, which a
+   stylesheet outranks. Scoped to this bar: elsewhere those attributes carry meaning (a
+   question's status dot, a green tick on a right answer) and must be left alone. */
+body.nx-player #app .home > .headerpane .svgicon {
+  stroke: currentColor;
+}
+body.nx-player #app .home > .headerpane .svgicon polygon[fill],
+body.nx-player #app .home > .headerpane .svgicon circle[fill] {
+  fill: currentColor;
+}
+
+body.nx-player #app .home > .headerpane a,
+body.nx-player #app .home > .headerpane a:link,
+body.nx-player #app .home > .headerpane a:visited {
+  color: #fff;
+}
+
+/* Buttons in the red bar read as buttons on red, not as the page's own primary. */
+body.nx-player #app .home > .headerpane button {
+  background: rgba(255, 255, 255, .14);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, .45);
+  border-radius: var(--nx-radius);
+  padding: .3rem .8rem;
+  font: inherit;
+  font-weight: 550;
+}
+body.nx-player #app .home > .headerpane button:enabled:hover,
+body.nx-player #app .home > .headerpane button:focus {
+  background: rgba(255, 255, 255, .26);
+}
+body.nx-player #app .home > .headerpane button:disabled {
+  opacity: .55;
+}
+
+/* The practice notice is a red italic on a red bar otherwise. */
+body.nx-player #app .home > .headerpane .practicenotice {
+  color: var(--nx-gold);
+  font-style: normal;
+  font-weight: 600;
+}
+
+/* ---- the question navigation strip --------------------------------------------------- */
+
+body.nx-player #skip-question-header,
+body.nx-player #fullpaged-nav,
+body.nx-player .drill-nav-header {
+  background: var(--nx-surface-2);
+  border: 1px solid var(--nx-border);
+  border-top: 0;
+  padding: .5rem .75rem;
+  gap: .5rem;
+  align-items: center;
+}
+
+/* On the full-page displays every question carries its own header instead. assess2.css caps
+   it at 726px, which drew a rule that stopped a third of the way across the card; here it is
+   the strip the question card hangs off, so it takes the card's width and its top corners. */
+body.nx-player .full-question-header {
+  max-width: none;
+  background: var(--nx-surface-2);
+  border: 1px solid var(--nx-border);
+  border-bottom: 0;
+  border-top: 1px solid var(--nx-border);
+  border-radius: var(--nx-radius-lg) var(--nx-radius-lg) 0 0;
+  padding: .5rem .9rem;
+}
+body.nx-player .fulldisp > div > div:first-of-type,
+body.nx-player .fulldisp > div:first-of-type > div:first-of-type,
+body.nx-player .fullpaged > div:first-of-type,
+body.nx-player .fullpaged:first-of-type > div:first-of-type {
+  margin-top: 1rem;
+}
+body.nx-player .fulldisp > div:first-of-type > div:first-of-type.full-question-header {
+  border-top: 1px solid var(--nx-border);
+}
+
+/* The meta row -- score, retries, reattempts, Details -- reads as icon soup at the engine's
+   default size. Space it and give the numbers the ink; the labels are in .sronly already. */
+body.nx-player .headericons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  color: var(--nx-muted);
+  gap: .9rem;
+  font-size: .9rem;
+}
+body.nx-player .headericons > * {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  margin-left: 0;
+}
+
+body.nx-player #skip-question-header button {
+  border-radius: var(--nx-radius);
+}
+
+/* ---- the question itself ------------------------------------------------------------- */
+
+/* assess2.css paints a scroll-shadow on .scrollpane out of four gradients whose two outer
+   layers are literally `white` -- they are the mask that hides the shadow where there is
+   nothing to scroll to. On a tinted page those read as two white tabs poking out past the
+   card. The affordance is worth keeping, so the mask is restated in the page's own colour
+   rather than removed. The inner .questionpane > .question keeps its white pair: that one
+   sits on the white card, where white is correct. */
+body.nx-player .scrollpane {
+  background-image:
+    linear-gradient(to right, var(--nx-bg), var(--nx-bg)),
+    linear-gradient(to right, var(--nx-bg), var(--nx-bg)),
+    linear-gradient(to right, rgba(0, 0, 0, .18), rgba(255, 255, 255, 0)),
+    linear-gradient(to left, rgba(0, 0, 0, .18), rgba(255, 255, 255, 0));
+}
+
+/* The card. .questionwrap is the per-question wrapper the Vue views render; .questionpane
+   rides with it, and assess2.css gives that pair the margins this replaces. */
+body.nx-player .questionwrap.questionpane {
+  background: var(--nx-card);
+  border: 1px solid var(--nx-border);
+  border-top: 0;
+  border-radius: 0 0 var(--nx-radius-lg) var(--nx-radius-lg);
+  box-shadow: var(--nx-shadow);
+  margin: 0 0 1rem;
+  padding: 1.25rem 1.5rem 1.5rem;
+}
+
+/* A question's prose wants a measure, not the full column. */
+body.nx-player .questionpane.introtext,
+body.nx-player .questionpane > .question > .question {
+  max-width: 44rem;
+}
+
+/* ---- multiple choice ----------------------------------------------------------------- */
+
+/* The engine emits: .choicesflexrow > .choice > (label, <br>, input). It floats them into a
+   row because the choices are short, which on a phone gives three radio dots a thumb cannot
+   tell apart. Each choice becomes a full-width row instead, radio first, with the label
+   filling it so the whole row is the hit target -- the label already carries `for`, so this
+   is a layout change and not a behaviour one. */
+body.nx-player .choicesflexrow,
+body.nx-player .choicesflexrow.clearfix {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: .5rem;
+  max-width: 34rem;
+}
+
+body.nx-player .choicesflexrow > div.choice {
+  display: flex;
+  align-items: center;
+  gap: .7rem;
+  float: none;
+  text-align: left;
+  padding: 0;
+  border: 1px solid var(--nx-border);
+  border-radius: var(--nx-radius);
+  background: var(--nx-card);
+}
+body.nx-player .choicesflexrow > div.choice:hover {
+  background: var(--nx-surface-2);
+  border-color: var(--nx-blue);
+}
+body.nx-player .choicesflexrow > div.choice:focus-within {
+  border-color: var(--nx-link);
+  box-shadow: 0 0 0 3px rgba(103, 151, 197, .35);
+}
+
+/* The <br> is the engine's line break between label and input; the row does not want it. */
+body.nx-player .choicesflexrow > div.choice > br {
+  display: none;
+}
+body.nx-player .choicesflexrow > div.choice > input[type=radio],
+body.nx-player .choicesflexrow > div.choice > input[type=checkbox] {
+  order: 1;
+  margin: 0 0 0 .8rem;
+  width: 1.15rem;
+  height: 1.15rem;
+  accent-color: var(--nx-red);
+  flex: none;
+}
+body.nx-player .choicesflexrow > div.choice > label {
+  order: 2;
+  flex: 1;
+  padding: .7rem .8rem .7rem 0;
+  cursor: pointer;
+}
+
+/* After a try the engine adds .ansgrn/.ansred/.ansyel/.ansorg to the group -- a 1px !important
+   border with a -1px margin, which drawn round a column wants room to breathe. */
+body.nx-player .choicesflexrow.ansgrn,
+body.nx-player .choicesflexrow.ansred,
+body.nx-player .choicesflexrow.ansyel,
+body.nx-player .choicesflexrow.ansorg {
+  border-radius: var(--nx-radius);
+  padding: .6rem;
+}
+
+/* The verdict travels as two siblings at the END of the group: an aria-hidden <svg
+   class="scoremarker"> and a <span class="sr-only scoremarker"> holding the word. Laid out in
+   a row they read as a mark beside the choices; in a column they become a bare glyph on a
+   line of its own, which says nothing to anyone reading it. So the glyph is redrawn from the
+   group's own state class and the word it already ships is shown next to it -- a sighted
+   student now reads "Incorrect" where they used to get an unlabelled tick. Nothing new is
+   disclosed: that word is already in the DOM for a screen reader. Scoped to the four state
+   classes, so a group in any other state keeps the engine's own svg. */
+body.nx-player .choicesflexrow.ansgrn > svg.scoremarker,
+body.nx-player .choicesflexrow.ansred > svg.scoremarker,
+body.nx-player .choicesflexrow.ansyel > svg.scoremarker,
+body.nx-player .choicesflexrow.ansorg > svg.scoremarker {
+  display: none;
+}
+body.nx-player .choicesflexrow.ansgrn > span.scoremarker,
+body.nx-player .choicesflexrow.ansred > span.scoremarker,
+body.nx-player .choicesflexrow.ansyel > span.scoremarker,
+body.nx-player .choicesflexrow.ansorg > span.scoremarker {
+  position: static;
+  width: auto;
+  height: auto;
+  margin: .1rem 0 0;
+  padding: 0;
+  overflow: visible;
+  clip: auto;
+  clip-path: none;
+  white-space: normal;
+  font-size: .9rem;
+  font-weight: 600;
+}
+body.nx-player .choicesflexrow > span.scoremarker::before {
+  margin-right: .35rem;
+  font-weight: 700;
+}
+body.nx-player .choicesflexrow.ansgrn > span.scoremarker {
+  color: #090;
+}
+body.nx-player .choicesflexrow.ansgrn > span.scoremarker::before {
+  content: '\2713'; /* check */
+}
+body.nx-player .choicesflexrow.ansred > span.scoremarker {
+  color: #900;
+}
+body.nx-player .choicesflexrow.ansred > span.scoremarker::before {
+  content: '\2715'; /* cross */
+}
+body.nx-player .choicesflexrow.ansyel > span.scoremarker,
+body.nx-player .choicesflexrow.ansorg > span.scoremarker {
+  color: #8a5a00;
+}
+body.nx-player .choicesflexrow.ansyel > span.scoremarker::before,
+body.nx-player .choicesflexrow.ansorg > span.scoremarker::before {
+  content: '\25D0'; /* half-filled circle: partial */
+}
+
+/* ---- buttons ------------------------------------------------------------------------- */
+
+body.nx-player .questionwrap button,
+body.nx-player .home button,
+body.nx-player input[type=submit],
+body.nx-player input[type=button] {
+  border-radius: var(--nx-radius);
+  font-family: inherit;
+}
+
+body.nx-player button.primary,
+body.nx-player input[type=submit].primary,
+body.nx-player input[type=button].primary,
+body.nx-player a.abutton.primary {
+  background-color: var(--nx-red);
+  border: 1px solid var(--nx-red);
+  color: #fff;
+  padding: .45rem 1.1rem;
+  font-weight: 600;
+}
+body.nx-player button.primary:enabled:hover,
+body.nx-player button.primary:focus,
+body.nx-player input[type=submit].primary:enabled:hover,
+body.nx-player input[type=button].primary:enabled:hover,
+body.nx-player a.abutton.primary:hover {
+  background-color: var(--nx-red-dark);
+  border-color: var(--nx-red-dark);
+}
+
+body.nx-player button.secondarybtn,
+body.nx-player button.secondary,
+body.nx-player input[type=submit].secondarybtn,
+body.nx-player input[type=button].secondarybtn {
+  background-color: var(--nx-surface-2);
+  border: 1px solid var(--nx-border);
+  color: var(--nx-ink);
+}
+body.nx-player button.secondarybtn:enabled:hover,
+body.nx-player button.secondary:enabled:hover,
+body.nx-player button.secondarybtn:focus {
+  background-color: var(--nx-bg);
+}
+
+body.nx-player .submitbtnwrap {
+  margin-top: 1.25rem;
+}
+
+/* ---- feedback ------------------------------------------------------------------------ */
+
+body.nx-player .feedback,
+body.nx-player .questionpane .feedback {
+  border-radius: var(--nx-radius);
+  border: 1px solid var(--nx-border);
+  padding: .9rem 1rem;
+}
+
+/* ---- the intro and closed screens ----------------------------------------------------- */
+
+/* Launch and Closed are the two views with no #assess-header: they render their own <h1> and
+   then a stack of loose blocks (the summary, two settings lists, and several <p> -- an error,
+   a time-limit notice, the Start button). Carding each block separately leaves seams between
+   them, so the WRAPPER is the card and the h1 is its red bar, matching the question screen. */
+body.nx-player #app .home.flexpanes {
+  gap: 1rem;
+  align-items: flex-start;
+  margin-top: 1rem;
+}
+
+body.nx-player #app .home.flexpanes > div:first-child {
+  background: var(--nx-card);
+  border: 1px solid var(--nx-border);
+  border-radius: var(--nx-radius-lg);
+  box-shadow: var(--nx-shadow);
+}
+
+body.nx-player #app .home.flexpanes > div:first-child > * {
+  padding-left: 1.5rem;
+  padding-right: 1.5rem;
+}
+body.nx-player #app .home.flexpanes > div:first-child > :last-child {
+  padding-bottom: 1.25rem;
+}
+
+body.nx-player #app .home.flexpanes > div:first-child > h1 {
+  background: var(--nx-red);
+  color: #fff;
+  border-radius: var(--nx-radius-lg) var(--nx-radius-lg) 0 0;
+  margin: 0 0 1rem;
+  padding: .7rem 1.5rem;
+  font-size: 1.25rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+/* assess2.css divides the panes with a border; the cards do that job now. */
+body.nx-player #app .home.flexpanes > div + div {
+  border-left: 0;
+  border-top: 0;
+  margin-top: 0;
+}
+
+body.nx-player #app .home .settings-list {
+  margin: 0;
+}
+body.nx-player #app .home .settings-list .flexrow {
+  gap: .6rem;
+  padding: .35rem 0;
+}
+body.nx-player #app .home .settings-list .flexrow > div:first-child {
+  color: var(--nx-muted);
+}
+
+/* ---- the results (summary) screen ------------------------------------------------------ */
+
+/* Summary is the third shape: a .headerpane bar (styled above) over a .flexpanes CHILD --
+   not a .flexpanes root as on the intro -- whose first pane is everything the student reads.
+   That pane is the card under the bar. */
+body.nx-player #app .home > .flexpanes {
+  gap: 1rem;
+  align-items: flex-start;
+}
+body.nx-player #app .home > .flexpanes > div + div {
+  border-left: 0;
+  border-top: 0;
+  margin-top: 0;
+}
+body.nx-player #app .home > .flexpanes > div:first-child {
+  background: var(--nx-card);
+  border: 1px solid var(--nx-border);
+  border-top: 0;
+  border-radius: 0 0 var(--nx-radius-lg) var(--nx-radius-lg);
+  box-shadow: var(--nx-shadow);
+  padding: 1.25rem 1.5rem 1.5rem;
+}
+
+/* The side pane (resources, previous attempts) is a card of its own. */
+body.nx-player .pane-body {
+  background: var(--nx-card);
+  border: 1px solid var(--nx-border);
+  border-radius: var(--nx-radius-lg);
+  box-shadow: var(--nx-shadow);
+  padding: 1rem;
+  margin: 0;
+}
+
+body.nx-player a,
+body.nx-player a:link {
+  color: var(--nx-link);
+}
+body.nx-player a:hover {
+  color: var(--nx-link-hover);
+}
+
+/* ---- narrow screens ------------------------------------------------------------------- */
+
+@media only screen and (max-width: 700px) {
+  body.nx-player #app .home {
+    margin-bottom: 1rem;
+  }
+  body.nx-player #app .home > .headerpane {
+    margin-top: 0;
+    border-radius: 0;
+    padding: .5rem .75rem;
+  }
+  body.nx-player #app .home > .headerpane h1 {
+    font-size: 1.1rem;
+  }
+  body.nx-player .questionwrap.questionpane {
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+    padding: 1rem .9rem 1.25rem;
+  }
+  body.nx-player .choicesflexrow {
+    max-width: none;
+  }
+  body.nx-player #app .home.flexpanes {
+    margin-top: 0;
+  }
+  body.nx-player #app .home.flexpanes > div:first-child {
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+  }
+  body.nx-player #app .home.flexpanes > div:first-child > h1 {
+    border-radius: 0;
+    padding: .6rem .9rem;
+    font-size: 1.1rem;
+  }
+  body.nx-player #app .home.flexpanes > div:first-child > * {
+    padding-left: .9rem;
+    padding-right: .9rem;
+  }
+}
+
+/* Printing keeps the engine's own sheet; none of the chrome above belongs on paper. */
+@media print {
+  body.nx-player {
+    background: #fff;
+  }
+  body.nx-player #app .home > .headerpane {
+    background: none;
+    color: #000;
+    box-shadow: none;
+  }
+  body.nx-player #app .home > .headerpane h1 {
+    color: #000;
+  }
+  body.nx-player .questionwrap.questionpane,
+  body.nx-player .pane-body {
+    box-shadow: none;
+    border: 0;
+  }
+}
