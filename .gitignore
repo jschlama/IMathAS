@@ -10,3 +10,6 @@ HTMLPurifier
 # local install (fork)
 config.php
 *.log
+
+# build metadata emitted by the vue build (never tracked upstream)
+assess2/vue/.vite/
