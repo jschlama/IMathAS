@@ -58,10 +58,11 @@ $data = array_merge([
 $GLOBALS['myrights'] = 100;
 $GLOBALS['userid'] = 0;
 $myrights = 100;
-// Display prefs the math/graph filter reads (1 = normal SVG + MathJax, not image fallback).
-// Assigning $_SESSION without a session is fine — preview needs no persistence.
+// Display prefs the math/graph filter reads. graphdisp=1 = SVG graphs; mathdisp=6 =
+// KaTeX (the renderer this page wires below). Assigning $_SESSION without a session
+// is fine — preview needs no persistence.
 $_SESSION['graphdisp'] = 1;
-$_SESSION['mathdisp'] = 1;
+$_SESSION['mathdisp'] = 6;
 
 $qn = 27;
 $seed = isset($_POST['seed']) ? intval($_POST['seed']) : rand(0, 10000);
@@ -116,6 +117,18 @@ echo '<meta name="viewport" content="width=device-width, initial-scale=1">';
 echo '<link rel="stylesheet" type="text/css" href="' . $sr . '/imascore.css">';
 echo '<link rel="stylesheet" type="text/css" href="' . $sr . '/mathquill/mathquill-basic.css?v=070726">';
 echo '<link rel="stylesheet" type="text/css" href="' . $sr . '/mathquill/mqeditor.css?v=020226">';
+// Math rendering — mirror header.php's KaTeX branch ($_SESSION['mathdisp']==6) so
+// backtick AsciiMath in the question typesets. initq() calls window.rendermathnode(),
+// which katex/auto-render.js defines; load the renderer, mathparser and ASCIIsvg
+// (graphdisp=1) here so they are ready before assess2supp.js runs initq below.
+echo '<script src="' . $sr . '/katex/katex.min.js"></script>';
+echo '<link rel="stylesheet" href="' . $sr . '/katex/katex.min.css">';
+echo '<script src="' . $sr . '/katex/auto-render.js?v=111025"></script>';
+echo '<script>setupKatexAutoRender();</script>';
+echo '<script>noMathRender = false; var usingASCIIMath = true; var AMnoMathML = true; var MathJaxCompatible = true; var mathRenderer = "Katex";</script>';
+echo '<script src="' . $sr . '/javascript/mathparser_min.js?v=031126"></script>';
+echo '<script src="' . $sr . '/javascript/ASCIIsvg_min.js?v=070426"></script>';
+echo '<script>var usingASCIISvg = true;</script>';
 foreach ($scripts as $u) echo '<script src="' . $u . '"></script>';
 echo '<style>body{font-family:system-ui,sans-serif;margin:1rem;background:#fff;color:#111}</style>';
 echo '</head><body>';
