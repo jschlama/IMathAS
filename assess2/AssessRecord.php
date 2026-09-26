@@ -248,8 +248,13 @@ class AssessRecord
    * @param  boolean $isstu     true if student initiated
    */
   public function updateLTIscore($sendnow = true, $isstu = true) {
+    if ($isstu) {
+      $this->applyNxGradePolicy();
+    }
+    // Fork: status2 bit 1 = released to the student (scores/answers); bit 2 = grade released
+    // to the LMS only (imathas-nx, docs/sections-design.md §4). Either one lets the grade go.
     if ($this->assess_info->getSetting('scoresingb') === 'manual' &&
-      ($this->assessRecord['status2']&1) == 0
+      ($this->assessRecord['status2']&3) == 0
     ) {
       // manual release, not released yet - don't sent LTI update
       return;
@@ -1113,6 +1118,46 @@ class AssessRecord
       return true;
     }
     return false;
+  }
+
+  /**
+   * Fork (imathas-nx): set status2 bit 2, "grade released to the LMS", without releasing
+   * scores or answers to the student (bit 1). Written atomically as well as in memory, so a
+   * save from another request can't be the only copy.
+   * @param bool $release  Boolean whether to release
+   * @return bool changed
+   */
+  public function setGradeReleased($release) {
+    $this->parseData();
+    if ((($this->assessRecord['status2']&2)==2) === $release) {
+      return false;
+    }
+    if ($release) {
+      $this->assessRecord['status2'] |= 2;
+      $sql = 'UPDATE imas_assessment_records SET status2=status2|2 WHERE assessmentid=? AND userid=?';
+    } else {
+      $this->assessRecord['status2'] &= ~2;
+      $sql = 'UPDATE imas_assessment_records SET status2=status2&~2 WHERE assessmentid=? AND userid=?';
+    }
+    $this->DBH->prepare($sql)->execute([$this->curAid, $this->curUid]);
+    return true;
+  }
+
+  /**
+   * Fork (imathas-nx): the grade policy the nx hand-off put in this student's session. "On
+   * submit" (nx's default) releases the grade to the LMS as the student submits, even while
+   * scores and answers stay held for the teacher's release. Only the student's own request
+   * applies it: a teacher's gradebook action never does.
+   */
+  private function applyNxGradePolicy() {
+    if (empty($_SESSION['nxgrade']) || !isset($_SESSION['userid']) ||
+      (int)$_SESSION['userid'] !== (int)$this->curUid ||
+      ($_SESSION['nxgrade'][$this->curAid] ?? '') !== 'on_submit' ||
+      !$this->hasRecord
+    ) {
+      return;
+    }
+    $this->setGradeReleased(true);
   }
 
   /**
