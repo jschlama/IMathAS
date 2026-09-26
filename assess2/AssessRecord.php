@@ -265,17 +265,34 @@ class AssessRecord
         $gbscore = $this->getGbScore();
         $aidposs = $this->assess_info->getSetting('points_possible');
         $lastchange = $this->getLastChange();
-        calcandupdateLTIgrade($lti_sourcedid, $this->curAid, $this->curUid, $gbscore['gbscore'], $sendnow, $aidposs, $isstu, $lastchange);
+        $this->sendLTIgradeSafely($lti_sourcedid, $this->curUid, $gbscore['gbscore'], $sendnow, $aidposs, $isstu, $lastchange);
         if ($this->assessRecord['agroupid'] > 0) {
             // has group; update their scores too
             $stm = $this->DBH->prepare('SELECT userid,lti_sourcedid FROM imas_assessment_records WHERE agroupid=? AND userid<>?');
             $stm->execute(array($this->assessRecord['agroupid'], $this->curUid));
             while ($row = $stm->fetch(PDO::FETCH_ASSOC)) {
                 if (strlen($row['lti_sourcedid']) > 1) {
-                    calcandupdateLTIgrade($row['lti_sourcedid'], $this->curAid, $row['userid'], $gbscore['gbscore'], $sendnow, $aidposs, $isstu, $lastchange);
+                    $this->sendLTIgradeSafely($row['lti_sourcedid'], $row['userid'], $gbscore['gbscore'], $sendnow, $aidposs, $isstu, $lastchange);
                 }
             }
         }
+    }
+  }
+
+  /**
+   * Fork (imathas-nx): send one grade to the LMS without letting a failure take the student's
+   * request down with it. By the time a grade is sent the record is already saved; a fatal here
+   * (a missing tool key, an unreachable LMS, a bad response) used to print an error into the
+   * JSON the player reads, so the student saw their submission "fail" when it hadn't. The
+   * failure is logged for the admin instead, and the next send (the next submission, or a
+   * teacher's release) tries again.
+   */
+  private function sendLTIgradeSafely($sourcedid, $uid, $score, $sendnow, $aidposs, $isstu, $lastchange) {
+    try {
+      calcandupdateLTIgrade($sourcedid, $this->curAid, $uid, $score, $sendnow, $aidposs, $isstu, $lastchange);
+    } catch (\Throwable $e) {
+      error_log(sprintf('LTI grade send failed (assessment %d, user %d): %s in %s:%d',
+        $this->curAid, $uid, $e->getMessage(), $e->getFile(), $e->getLine()));
     }
   }
 
