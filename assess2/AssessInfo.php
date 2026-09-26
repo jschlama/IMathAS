@@ -216,10 +216,24 @@ class AssessInfo
     }
 
     if ($useexception) {
+      // Fork (imathas-nx): an LTI-set row keeps the LMS's own due date in manualexceptionend
+      // (lti/Database.php set_or_update_duedate_exception writes it; LatePass redemption never
+      // changes it). When the row runs past that date, lateness counts from it. For stock rows
+      // this is the same date as enddate minus the LatePass hours; it also holds when the pass
+      // length isn't a multiple of latepasshrs (nx's teacher-set lengths) or when there's no
+      // pass at all (nx's make-up access).
+      $ltiDue = 0;
+      if (!empty($this->exception['is_lti']) && !empty($this->exception['manualexceptionend']) &&
+        intval($this->exception['manualexceptionend']) < intval($this->exception['enddate'])
+      ) {
+        $ltiDue = intval($this->exception['manualexceptionend']);
+      }
       // exception format is [startdate, enddate, latepasses_used, is_lti]
-      if (empty($this->exception['is_lti']) || $this->exception['islatepass'] > 0) {
+      if (empty($this->exception['is_lti']) || $this->exception['islatepass'] > 0 || $ltiDue > 0) {
         //if not LTI-set, or if LP used, show orig due date
-        if (!empty($this->exception['is_lti']) && $this->exception['islatepass'] > 0) {
+        if ($ltiDue > 0) {
+          $this->assessData['original_enddate'] = $ltiDue;
+        } else if (!empty($this->exception['is_lti']) && $this->exception['islatepass'] > 0) {
           // lti with latepasses: subtract latepasses to get original enddate
           // since original was an lti-set exception
           $hrstosubtract = intval($this->exception['islatepass']) * $latepasshrs;

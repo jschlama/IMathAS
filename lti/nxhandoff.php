@@ -154,6 +154,30 @@ if ($role === 'instructor') {
             $DBH->prepare('UPDATE imas_students SET section=? WHERE id=?')->execute([$section, $srow['id']]);
         }
     }
+
+    // The student's section dates (imathas-nx), as an LTI-set exception, the same row stock
+    // IMathAS writes for an LMS due date (lti/Database.php set_or_update_duedate_exception):
+    // enddate is when the student's scored work closes, manualexceptionend is the due date
+    // lateness counts from (AssessInfo::setException). nx gives the assessment itself no dates,
+    // so this row is how the engine knows each student's own due date. A row already running
+    // past the due date (a LatePass, make-up access, or a teacher's extension) keeps its end.
+    $nxdue = (int) ($payload['dueAt'] ?? 0);
+    if ($nxdue > 0) {
+        $nxopens = max(0, (int) ($payload['opensAt'] ?? 0));
+        $stm = $DBH->prepare("SELECT id,enddate FROM imas_exceptions WHERE userid=? AND assessmentid=? AND itemtype='A'");
+        $stm->execute([$userid, $aid]);
+        $xrow = $stm->fetch(PDO::FETCH_ASSOC);
+        if ($xrow === false) {
+            $DBH->prepare("INSERT INTO imas_exceptions (userid,assessmentid,itemtype,startdate,enddate,islatepass,is_lti,manualexceptionend) VALUES (?,?,'A',?,?,0,1,?)")
+                ->execute([$userid, $aid, $nxopens, $nxdue, $nxdue]);
+        } else if ((int) $xrow['enddate'] > $nxdue) {
+            $DBH->prepare('UPDATE imas_exceptions SET startdate=?,is_lti=1,manualexceptionend=? WHERE id=?')
+                ->execute([$nxopens, $nxdue, $xrow['id']]);
+        } else {
+            $DBH->prepare('UPDATE imas_exceptions SET startdate=?,enddate=?,is_lti=1,islatepass=0,manualexceptionend=? WHERE id=?')
+                ->execute([$nxopens, $nxdue, $nxdue, $xrow['id']]);
+        }
+    }
 }
 
 }   // end launch mode
