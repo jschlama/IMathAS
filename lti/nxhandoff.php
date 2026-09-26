@@ -176,6 +176,18 @@ $_SESSION['ltirole'] = $role;
 $_SESSION['tzoffset'] = $tzoffset;
 $_SESSION['time'] = time();
 $_SESSION['started'] = time();
+// The student's section grade policy (imathas-nx nx_placement_windows.grade_mode). 'on_submit'
+// lets their own submissions release the grade to the LMS (status2 bit 2) while scores and
+// answers stay held; see AssessRecord::applyNxGradePolicy. Learner launches only.
+if (!isset($_SESSION['nxgrade']) || !is_array($_SESSION['nxgrade'])) {
+    $_SESSION['nxgrade'] = [];
+}
+$nxgrade = $payload['gradeRelease'] ?? null;
+if ($mode === 'launch' && $role === 'learner' && in_array($nxgrade, ['on_submit', 'at_due', 'manual'], true)) {
+    $_SESSION['nxgrade'][$aid] = $nxgrade;
+} else {
+    unset($_SESSION['nxgrade'][$aid]);
+}
 session_write_close();
 
 header(sprintf('Location: %s/assess2/?cid=%d&aid=%d', $GLOBALS['basesiteurl'], $courseid, $aid));
