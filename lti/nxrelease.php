@@ -8,11 +8,14 @@
  * releasing, with its own functions.
  *
  *   POST token=<base64url(json)>.<base64url(hmac-sha256)>
- *   json: { "action": "grades", "courseId": N, "assessmentId": N, "userIds": [N...], "exp": T }
+ *   json: { "action": "grades"|"answers", "courseId": N, "assessmentId": N, "userIds": [N...], "exp": T }
  *   200 { "released": n }
  *
  * "grades" sets status2 bit 2 (grade released to the LMS) and sends the grade now; scores and
- * answers stay held for the student. Only students enrolled in the course are touched.
+ * answers stay held for the student.
+ * "answers" is IMathAS's own "Release Grades to Students" (AssessHelpers::manuallyReleaseAll):
+ * status2 bit 1, so the student sees scores, answers and solutions, and the grade is sent.
+ * nx decides who is ready (never a student still working). Only enrolled students are touched.
  */
 require_once __DIR__ . '/../init_without_validate.php';
 require_once __DIR__ . '/../assess2/AssessInfo.php';
@@ -55,7 +58,7 @@ $action = $payload['action'] ?? '';
 $cid = (int) ($payload['courseId'] ?? 0);
 $aid = (int) ($payload['assessmentId'] ?? 0);
 $uids = array_values(array_unique(array_filter(array_map('intval', (array) ($payload['userIds'] ?? [])))));
-if ($action !== 'grades' || $cid <= 0 || $aid <= 0) {
+if (!in_array($action, ['grades', 'answers'], true) || $cid <= 0 || $aid <= 0) {
     nx_fail(400, 'Missing or unknown fields.');
 }
 $stm = $DBH->prepare('SELECT id FROM imas_assessments WHERE id=? AND courseid=?');
@@ -79,5 +82,7 @@ $stm = $DBH->prepare("SELECT userid FROM imas_students WHERE courseid=? AND user
 $stm->execute([$cid, ...$uids]);
 $enrolled = array_map('intval', $stm->fetchAll(PDO::FETCH_COLUMN, 0));
 
-$n = AssessHelpers::releaseGrades($cid, $aid, $enrolled);
+$n = $action === 'answers'
+    ? (count($enrolled) ? AssessHelpers::manuallyReleaseAll($cid, $aid, $enrolled, true) : 0)
+    : AssessHelpers::releaseGrades($cid, $aid, $enrolled);
 echo json_encode(['released' => $n]);
