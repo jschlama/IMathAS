@@ -66,6 +66,9 @@ $last = (string) ($payload['lastName'] ?? '');
 $email = (string) ($payload['email'] ?? '');
 $tzoffset = (float) ($payload['tzoffset'] ?? 0);
 $lticourseid = (int) ($payload['ltiCourseId'] ?? 0);
+// The student's section label (imathas-nx nx_sections.imas_section), so this gradebook groups
+// students by section the way nx does. Absent = leave imas_students.section as it is.
+$section = isset($payload['section']) ? mb_substr(trim((string) $payload['section']), 0, 40) : null;
 if ($courseid === 0 || $aid === 0) {
     http_response_code(400);
     exit('Hand-off token is missing required fields.');
@@ -136,14 +139,20 @@ if ($role === 'instructor') {
 } else {
     // Enrol the student and stamp lticourseid so IMathAS's passback can build the sourcedid
     // (AssessUtils::formLTIsourcedId needs imas_students.lticourseid; trace §3.4).
-    $stm = $DBH->prepare('SELECT id,lticourseid FROM imas_students WHERE userid=? AND courseid=?');
+    $stm = $DBH->prepare('SELECT id,lticourseid,section FROM imas_students WHERE userid=? AND courseid=?');
     $stm->execute([$userid, $courseid]);
     $srow = $stm->fetch(PDO::FETCH_ASSOC);
     if ($srow === false) {
         $DBH->prepare('INSERT INTO imas_students (userid,courseid,section,lticourseid) VALUES (?,?,?,?)')
-            ->execute([$userid, $courseid, '', $lticourseid]);
-    } else if ($lticourseid > 0 && (int) $srow['lticourseid'] !== $lticourseid) {
-        $DBH->prepare('UPDATE imas_students SET lticourseid=? WHERE id=?')->execute([$lticourseid, $srow['id']]);
+            ->execute([$userid, $courseid, $section ?? '', $lticourseid]);
+    } else {
+        if ($lticourseid > 0 && (int) $srow['lticourseid'] !== $lticourseid) {
+            $DBH->prepare('UPDATE imas_students SET lticourseid=? WHERE id=?')->execute([$lticourseid, $srow['id']]);
+        }
+        // A student who moved section in Canvas moves here on their next launch.
+        if ($section !== null && (string) $srow['section'] !== $section) {
+            $DBH->prepare('UPDATE imas_students SET section=? WHERE id=?')->execute([$section, $srow['id']]);
+        }
     }
 }
 
