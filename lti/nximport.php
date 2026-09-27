@@ -12,7 +12,10 @@
  *           course:  "courseId": N, "checked": true | ["<item key>" | "0-1-2" block path ...],
  *                    "options": { "update": 1|-1, "userights": -1|0|2|3|4, "importgbsetup": 0|1 }
  *           library: "libs": true | [<export library id>...], "parent": <library id or 0>,
- *                    "options": { "update": 1|-1, "userights": -1|0|2|3|4, "librights": 0|2|4|8 } }
+ *                    "options": { "update": 1|-1|2, "userights": -1|0|2|3|4, "librights": 0|1|2|4|5|8,
+ *                                 "reuselibrights"?: bool, "ownerId"?: int } }
+ *                   update 2 (force) and ownerId are admin-only; librights 4/5/8 need admin or
+ *                   special right 8.
  *   200 { "counts": { label: n, ... } }
  *
  * "course" is IMathAS's own Import Course Items (admin/importitems2.php → ImportItemClass): a
@@ -72,7 +75,7 @@ if (!hash_equals((string) ($payload['sha256'] ?? ''), hash_file('sha256', $file)
 }
 
 // The importing teacher, as the stock pages' validate.php would have set them.
-$stm = $DBH->prepare('SELECT id, rights, groupid FROM imas_users WHERE id=?');
+$stm = $DBH->prepare('SELECT id, rights, groupid, specialrights FROM imas_users WHERE id=?');
 $stm->execute([(int) ($payload['userId'] ?? 0)]);
 $u = $stm->fetch(PDO::FETCH_ASSOC);
 if ($u === false || (int) $u['rights'] < 20) {
@@ -81,12 +84,19 @@ if ($u === false || (int) $u['rights'] < 20) {
 $userid = (int) $u['id'];
 $myrights = (int) $u['rights'];
 $groupid = (int) $u['groupid'];
+$specialrights = (int) $u['specialrights'];
 $GLOBALS['userid'] = $userid;
 $GLOBALS['myrights'] = $myrights;
 $GLOBALS['groupid'] = $groupid;
 
 $opts = is_array($payload['options'] ?? null) ? $payload['options'] : [];
-$update = ((int) ($opts['update'] ?? 1)) === 1 ? 1 : -1;
+// 1 update if not edited here, -1 keep what is here, 2 force (admins only, as importlib.php).
+$update = (int) ($opts['update'] ?? 1);
+if ($update === 2 && $myrights < 100) {
+    $update = 1;
+} elseif ($update !== 2 && $update !== -1) {
+    $update = 1;
+}
 $qrights = (int) ($opts['userights'] ?? -1);
 if (!in_array($qrights, [-1, 0, 2, 3, 4], true)) {
     $qrights = -1;
@@ -121,7 +131,7 @@ if ($action === 'course') {
     require_once __DIR__ . '/../admin/importitemsfuncs.php';
     $GLOBALS['db_fields'] = $db_fields;
     $options = [
-        'update' => $update,
+        'update' => $update === -1 ? -1 : 1, // the stock course importer knows no force
         'userights' => $qrights,
         'importlib' => 0,
     ];
@@ -263,6 +273,27 @@ $librights = (int) ($opts['librights'] ?? 0);
 if (!in_array($librights, [0, 1, 2, 4, 5, 8], true)) {
     $librights = 0;
 }
+// Beyond the group (4, 5, 8) only for an admin or special right 8, as managelibs.php allows.
+$wideLibs = $myrights >= 100 || ($specialrights & 8) === 8;
+if ($librights >= 4 && !$wideLibs) {
+    nx_fail(403, 'Only an admin can share libraries beyond the group.');
+}
+// Who owns what this import creates: the importer, or (admins only) the account they name.
+$importuserid = $userid;
+$importgroupid = $groupid;
+if (!empty($opts['ownerId'])) {
+    if ($myrights < 100) {
+        nx_fail(403, 'Only an admin can import for someone else.');
+    }
+    $stm = $DBH->prepare('SELECT id, groupid FROM imas_users WHERE id=? AND rights>=20');
+    $stm->execute([(int) $opts['ownerId']]);
+    $own = $stm->fetch(PDO::FETCH_ASSOC);
+    if ($own === false) {
+        nx_fail(400, 'That owner is not a teacher account.');
+    }
+    $importuserid = (int) $own['id'];
+    $importgroupid = (int) $own['groupid'];
+}
 
 list($libs, $libitems, $sourceinstall) = nx_parselibs($file);
 if (count($libs) === 0) {
@@ -311,9 +342,12 @@ try {
             continue;
         }
         $uid = ($ex === null && $l['uid'] !== '' && $l['uid'] !== '0') ? $l['uid'] : $newuid($n);
-        $rights = ($l['userights'] !== null && !empty($opts['reuselibrights'])) ? $l['userights'] : $librights;
+        $rights = ($l['userights'] !== null && !empty($opts['reuselibrights'])) ? (int) $l['userights'] : $librights;
+        if ($rights >= 4 && !$wideLibs) {
+            $rights = $librights; // the file's level, but only as far as this teacher may share
+        }
         $stm = $DBH->prepare('INSERT INTO imas_libraries (uniqueid,adddate,lastmoddate,name,ownerid,userights,parent,groupid) VALUES (?,?,?,?,?,?,?,?)');
-        $stm->execute([$uid, $now, $now, Sanitize::stripHtmlTags($l['name']), $userid, $rights, $lparent, $groupid]);
+        $stm->execute([$uid, $now, $now, Sanitize::stripHtmlTags($l['name']), $importuserid, $rights, $lparent, $importgroupid]);
         $libmap[$lid] = (int) $DBH->lastInsertId();
         $counts['New libraries']++;
     }
@@ -340,7 +374,7 @@ try {
             $qmap[$eid] = (int) $row['id'];
             $mayEdit = (int) $row['ownerid'] === $userid || (int) $row['userights'] > 3 || $myrights == 100;
             $newer = (int) $qd['lastmod'] > (int) $row['adddate'] && (int) $row['lastmoddate'] <= (int) $row['adddate'];
-            if ((int) $row['deleted'] === 1 || ($update === 1 && $newer && $mayEdit)) {
+            if ((int) $row['deleted'] === 1 || ($update === 1 && $newer && $mayEdit) || ($update === 2 && $mayEdit)) {
                 $stm = $DBH->prepare('UPDATE imas_questionset SET description=?,author=?,qtype=?,control=?,qcontrol=?,qtext=?,answer=?,extref=?,license=?,ancestorauthors=?,otherattribution=?,solution=?,solutionopts=?,adddate=?,lastmoddate=?,hasimg=?,deleted=0 WHERE id=?');
                 $stm->execute([$qd['description'], $qd['author'], $qd['qtype'], $qd['control'], $qd['qcontrol'], $qd['qtext'], $qd['answer'],
                     $qd['extref'], (int) $qd['license'], $qd['ancestorauthors'], $qd['otherattribution'], $qd['solution'], (int) $qd['solutionopts'],
@@ -356,7 +390,7 @@ try {
         $uqid = $qd['uqid'] !== '' ? preg_replace('/[^0-9]/', '', $qd['uqid']) : substr($mt, 11) . substr($mt, 2, 1) . str_pad((string) $eid, 5, '0', STR_PAD_LEFT);
         $rights = ($qrights === -1 && $qd['userights'] !== '') ? (int) $qd['userights'] : ($qrights === -1 ? 2 : $qrights);
         $stm = $DBH->prepare('INSERT INTO imas_questionset (uniqueid,adddate,lastmoddate,ownerid,userights,description,author,qtype,control,qcontrol,qtext,answer,solution,solutionopts,extref,license,ancestorauthors,otherattribution,hasimg) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
-        $stm->execute([$uqid, $now, $now, $userid, $rights, $qd['description'], $qd['author'], $qd['qtype'], $qd['control'], $qd['qcontrol'],
+        $stm->execute([$uqid, $now, $now, $importuserid, $rights, $qd['description'], $qd['author'], $qd['qtype'], $qd['control'], $qd['qcontrol'],
             $qd['qtext'], $qd['answer'], $qd['solution'], (int) $qd['solutionopts'], $qd['extref'], (int) $qd['license'],
             $qd['ancestorauthors'], $qd['otherattribution'], $hasimg]);
         $qmap[$eid] = (int) $DBH->lastInsertId();
@@ -400,10 +434,10 @@ try {
             $has->execute([$newlib, $qmap[$eid]]);
             $li = $has->fetch(PDO::FETCH_ASSOC);
             if ($li === false) {
-                $add->execute([$newlib, $qmap[$eid], $userid, $now]);
+                $add->execute([$newlib, $qmap[$eid], $importuserid, $now]);
                 $counts['Library items added']++;
             } elseif ((int) $li['deleted'] === 1) {
-                $undel->execute([$userid, $now, $li['id']]);
+                $undel->execute([$importuserid, $now, $li['id']]);
                 $counts['Library items added']++;
             }
         }
