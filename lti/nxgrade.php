@@ -24,6 +24,15 @@
  *     200 { "results": { "<userid>": { "old": <points>|"" , "score": <new gradebook score> } },
  *           "skipped": { "<userid>": "<reason>" } }
  *
+ *   { "action": "settings", "courseId": N, "assessmentId": N, "teacherId": N,
+ *     "columns": { "<imas_assessments column>": value, ... }, "exp": T }
+ *     = course/addassessment2.php's save, for the behaviour columns an nx preset decides (the
+ *       allowlist below): the row is updated, a change to a taken assessment is audit-logged,
+ *       teacher and tutor attempts are deleted, every student record is re-totalled (and
+ *       converted when the scoring mode changes) with grades sent to the LMS, and question
+ *       locks are cleared when the lock bit is off — the same steps, in the same order.
+ *     200 { "changed": ["<column>", ...], "taken": bool }
+ *
  * The teacher must teach the course (imas_teachers), and only enrolled students are touched.
  */
 require_once __DIR__ . '/../init_without_validate.php';
@@ -66,7 +75,7 @@ $action = $payload['action'] ?? '';
 $cid = (int) ($payload['courseId'] ?? 0);
 $aid = (int) ($payload['assessmentId'] ?? 0);
 $tid = (int) ($payload['teacherId'] ?? 0);
-if (!in_array($action, ['withdraw', 'override'], true) || $cid <= 0 || $aid <= 0 || $tid <= 0) {
+if (!in_array($action, ['withdraw', 'override', 'settings'], true) || $cid <= 0 || $aid <= 0 || $tid <= 0) {
     nx_fail(400, 'Missing or unknown fields.');
 }
 $stm = $DBH->prepare('SELECT ver, defpoints, itemorder FROM imas_assessments WHERE id=? AND courseid=?');
@@ -141,6 +150,89 @@ if ($action === 'withdraw') {
     }
     $DBH->commit();
     echo json_encode(['withdrawn' => $qids, 'records' => $n]);
+    exit;
+}
+
+if ($action === 'settings') {
+    // The columns an nx preset decides (presets/settings.ts toEngine), and nothing else: name,
+    // dates, points and content are written by nx directly, as they need no re-total.
+    $allowed = array(
+        'submitby' => ['by_question', 'by_assessment'],
+        'defattempts' => 'int', 'defpenalty' => 'str', 'defregens' => 'int',
+        'defregenpenalty' => 'str', 'keepscore' => ['best', 'last', 'average'],
+        'retakewait' => 'int', 'showscores' => 'str', 'showans' => 'str', 'viewingb' => 'str',
+        'scoresingb' => 'str', 'ansingb' => 'str', 'showhints' => 'int', 'showtips' => 'int',
+        'noprint' => 'int', 'shuffle' => 'int', 'timelimit' => 'int', 'overtime_grace' => 'int',
+        'overtime_penalty' => 'int', 'reviewdate' => 'int', 'cntingb' => 'int',
+        'allowlate' => 'int', 'exceptionpenalty' => 'int', 'exceptionpenaltyinterval' => 'int'
+    );
+    $cols = (array) ($payload['columns'] ?? []);
+    $toset = array();
+    foreach ($cols as $k => $v) {
+        if (!isset($allowed[$k])) {
+            nx_fail(400, "Column $k cannot be set here.");
+        }
+        $rule = $allowed[$k];
+        if (is_array($rule) ? !in_array($v, $rule, true)
+            : ($rule === 'int' ? !is_int($v) : !is_string($v))) {
+            nx_fail(400, "Bad value for $k.");
+        }
+        $toset[$k] = $v;
+    }
+    if (count($toset) === 0) {
+        nx_fail(400, 'No columns named.');
+    }
+    $stm = $DBH->prepare('SELECT * FROM imas_assessments WHERE id=?');
+    $stm->execute([$aid]);
+    $curassess = $stm->fetch(PDO::FETCH_ASSOC);
+    // addassessment2.php's $taken: an enrolled student has a record.
+    $stm = $DBH->prepare('SELECT COUNT(iar.userid) FROM imas_assessment_records AS iar,imas_students WHERE
+        iar.assessmentid=? AND iar.userid=imas_students.userid AND imas_students.courseid=?');
+    $stm->execute([$aid, $cid]);
+    $taken = ($stm->fetchColumn(0) > 0);
+
+    $DBH->beginTransaction();
+    $sets = array();
+    $qarr = array();
+    foreach ($toset as $k => $v) {
+        $sets[] = "$k=:$k";
+        $qarr[":$k"] = $v;
+    }
+    $qarr[':id'] = $aid;
+    $qarr[':cid'] = $cid;
+    $stm = $DBH->prepare('UPDATE imas_assessments SET ' . implode(',', $sets) . ' WHERE id=:id AND courseid=:cid');
+    $stm->execute($qarr);
+    $changed = array();
+    foreach ($curassess as $k => $v) {
+        if (isset($toset[$k]) && $toset[$k] != $v) {
+            $changed[$k] = ['old' => $v, 'new' => $toset[$k]];
+        }
+    }
+    if ($taken && count($changed) > 0) {
+        TeacherAuditLog::addTracking($cid, "Assessment Settings Change", $aid,
+            array_merge($changed, ['via' => 'imathas-nx']));
+    }
+    // Delete any teacher or tutor attempts on this assessment
+    $stm = $DBH->prepare('DELETE iar FROM imas_assessment_records AS iar JOIN
+        imas_teachers AS usr ON usr.userid=iar.userid AND usr.courseid=? WHERE iar.assessmentid=?');
+    $stm->execute(array($cid, $aid));
+    $stm = $DBH->prepare('DELETE iar FROM imas_assessment_records AS iar JOIN
+        imas_tutors AS usr ON usr.userid=iar.userid AND usr.courseid=? WHERE iar.assessmentid=?');
+    $stm->execute(array($cid, $aid));
+    // Re-total any student attempts on this assessment (converting them on a scoring change)
+    require_once __DIR__ . '/../assess2/AssessHelpers.php';
+    require_once __DIR__ . '/../includes/ltioutcomes.php';
+    $newsubmitby = $toset['submitby'] ?? $curassess['submitby'];
+    AssessHelpers::retotalAll($cid, $aid, true, false,
+        ($newsubmitby == $curassess['submitby']) ? '' : $newsubmitby, false);
+    $noprint = $toset['noprint'] ?? (int) $curassess['noprint'];
+    if (($noprint & 2) === 0) {
+        // no lock: clear any existing locks
+        $stm = $DBH->prepare("UPDATE imas_students SET lockaid=0 WHERE courseid=? AND lockaid=?");
+        $stm->execute([$cid, $aid]);
+    }
+    $DBH->commit();
+    echo json_encode(['changed' => array_keys($changed), 'taken' => $taken]);
     exit;
 }
 
