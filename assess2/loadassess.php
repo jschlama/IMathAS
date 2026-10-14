@@ -78,8 +78,14 @@ $include_from_assess_info = array(
 );
 $assessInfoOut = $assess_info->extractSettings($include_from_assess_info);
 
-// livepoll server location, if needed
-if ($assessInfoOut['displaymethod'] === 'livepoll') {
+// livepoll server location, if needed. normalizeSettings has already dropped the mode when
+// the server is not configured, so this cannot fire unset now -- the guard is here so that a
+// future caller reaching it cannot resurrect the old failure, and it refuses to emit an
+// address rather than building a half one: ':3000' would take the client to a connect error
+// instead of a warning, which is no better for the student in front of it.
+if ($assessInfoOut['displaymethod'] === 'livepoll' &&
+  !empty($CFG['GEN']['livepollserver'])
+) {
   $port = $CFG['GEN']['livepollserverport'] ?? '3000';
   $assessInfoOut['livepoll_server'] = $CFG['GEN']['livepollserver'] . ':' . $port;
 }

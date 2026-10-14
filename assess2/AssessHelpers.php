@@ -271,6 +271,50 @@ class AssessHelpers
   }
 
   /**
+   * Fork (imathas-nx): release students' GRADES to the LMS (status2 bit 2) and send them now,
+   * leaving scores and answers held for the student (bit 1). Idempotent: a student already
+   * released is skipped. Returns the number of students whose grade was released.
+   * @param  int   $cid   The course ID
+   * @param  int   $aid   The assessment ID
+   * @param  array $stus  Array of student user IDs
+   * @return int
+   */
+  public static function releaseGrades($cid, $aid, $stus) {
+    global $DBH;
+    if (!is_array($stus) || count($stus) === 0) {
+      return 0;
+    }
+    $assess_info = new AssessInfo($DBH, $aid, $cid, false);
+    // Without manual release the grade already goes to the LMS on every submission.
+    if ($assess_info->getSetting('scoresingb') !== 'manual') {
+      return 0;
+    }
+    // No row lock needed: setGradeReleased writes the bit atomically (status2|2).
+    $ph = Sanitize::generateQueryPlaceholders($stus);
+    $stm = $DBH->prepare("SELECT * FROM imas_assessment_records WHERE userid IN ($ph) AND assessmentid=?");
+    $stm->execute([...$stus, $aid]);
+    $rows = $stm->fetchAll(PDO::FETCH_ASSOC);
+    $cnt = 0;
+    $changes = [];
+    foreach ($rows as $line) {
+      $GLOBALS['assessver'] = $line['ver'];
+      $assess_record = new AssessRecord($DBH, $assess_info, false);
+      $assess_record->setRecord($line);
+      if ($assess_record->setGradeReleased(true)) {
+        // sent as the student, as manuallyReleaseAll does when releasing
+        $assess_record->updateLTIscore(true, true);
+        $changes[] = $line['userid'];
+        $cnt++;
+      }
+    }
+    if (!empty($changes)) {
+      TeacherAuditLog::addTracking($cid, "Change Grades", $aid,
+        array('nx_grade_release' => ['stus' => $changes]));
+    }
+    return $cnt;
+  }
+
+  /**
    * Updates the "Show work after" flag on assessment records
    * @param  int $aid   The assessment ID
    * @param  int $newshowwork  The new value for imas_assessments.showwork

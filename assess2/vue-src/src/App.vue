@@ -1,6 +1,6 @@
 <template>
   <div id="app" role="main">
-    <div v-if="!assessInfoLoaded">
+    <div v-if="!assessInfoLoaded" class="player-loading">
       {{ $t('loading') }}
     </div>
 
@@ -28,6 +28,7 @@ import ErrorDialog from '@/components/ErrorDialog.vue';
 import DueDialog from '@/components/DueDialog.vue';
 import ConfirmDialog from '@/components/ConfirmDialog.vue';
 import './assess2.css';
+import './player-theme.css';
 
 export default {
   components: {

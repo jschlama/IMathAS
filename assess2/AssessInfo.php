@@ -216,10 +216,24 @@ class AssessInfo
     }
 
     if ($useexception) {
+      // Fork (imathas-nx): an LTI-set row keeps the LMS's own due date in manualexceptionend
+      // (lti/Database.php set_or_update_duedate_exception writes it; LatePass redemption never
+      // changes it). When the row runs past that date, lateness counts from it. For stock rows
+      // this is the same date as enddate minus the LatePass hours; it also holds when the pass
+      // length isn't a multiple of latepasshrs (nx's teacher-set lengths) or when there's no
+      // pass at all (nx's make-up access).
+      $ltiDue = 0;
+      if (!empty($this->exception['is_lti']) && !empty($this->exception['manualexceptionend']) &&
+        intval($this->exception['manualexceptionend']) < intval($this->exception['enddate'])
+      ) {
+        $ltiDue = intval($this->exception['manualexceptionend']);
+      }
       // exception format is [startdate, enddate, latepasses_used, is_lti]
-      if (empty($this->exception['is_lti']) || $this->exception['islatepass'] > 0) {
+      if (empty($this->exception['is_lti']) || $this->exception['islatepass'] > 0 || $ltiDue > 0) {
         //if not LTI-set, or if LP used, show orig due date
-        if (!empty($this->exception['is_lti']) && $this->exception['islatepass'] > 0) {
+        if ($ltiDue > 0) {
+          $this->assessData['original_enddate'] = $ltiDue;
+        } else if (!empty($this->exception['is_lti']) && $this->exception['islatepass'] > 0) {
           // lti with latepasses: subtract latepasses to get original enddate
           // since original was an lti-set exception
           $hrstosubtract = intval($this->exception['islatepass']) * $latepasshrs;
@@ -1257,6 +1271,22 @@ class AssessInfo
       'penalty' => intval($settings['defregenpenalty']),
       'n' => intval($settings['defregenpenalty_after'])
     );
+
+    // LivePoll needs the websocket server from imathas-extras, and the authoring form only
+    // offers the mode when livepollserver is configured -- but an assessment COPIED OR
+    // IMPORTED from an install that had one arrives here carrying displaymethod=livepoll on
+    // a site that does not. Without this it is unplayable and silently so: loadassess.php
+    // builds livepoll_server from the unset key, PHP prints a warning INTO the JSON body,
+    // the client parses null, and every student sits on "Loading..." with nothing on screen
+    // saying why. Fall back exactly as video_cued does below when it has no viddata, so the
+    // assessment is an ordinary one instead of a dead one. Before the block that follows:
+    // once it is not a LivePoll, it must not be forced to that mode's seed and submitby.
+    global $CFG;
+    if ($settings['displaymethod'] === 'livepoll' &&
+        empty($CFG['GEN']['livepollserver'])
+    ) {
+      $settings['displaymethod'] = 'skip';
+    }
 
     // if LivePoll, force all stu same random seed
     // force by-question submission
