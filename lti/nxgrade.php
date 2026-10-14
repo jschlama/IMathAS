@@ -33,6 +33,16 @@
  *       locks are cleared when the lock bit is off — the same steps, in the same order.
  *     200 { "changed": ["<column>", ...], "taken": bool }
  *
+ *   { "action": "question", "courseId": N, "assessmentId": N, "teacherId": N,
+ *     "questionId": N, "settings": { "<imas_questions column>": value, ... }, "exp": T }
+ *     = course/modquestion2.php's save of an existing question (no copies, no replacement, no
+ *       rubric): the per-question columns below, with the page's own rules (points equal to the
+ *       default is stored as the 9999 "use default"; extra credit is refused inside a pool; a
+ *       points change in a pool that shows fewer than all its questions sets every question in
+ *       it), the audit log on a taken assessment, ptsposs, teacher/tutor attempts deleted, and
+ *       every student record re-totalled with grades sent to the LMS.
+ *     200 { "changed": ["<column>", ...], "taken": bool }
+ *
  * The teacher must teach the course (imas_teachers), and only enrolled students are touched.
  */
 require_once __DIR__ . '/../init_without_validate.php';
@@ -75,7 +85,7 @@ $action = $payload['action'] ?? '';
 $cid = (int) ($payload['courseId'] ?? 0);
 $aid = (int) ($payload['assessmentId'] ?? 0);
 $tid = (int) ($payload['teacherId'] ?? 0);
-if (!in_array($action, ['withdraw', 'override', 'settings'], true) || $cid <= 0 || $aid <= 0 || $tid <= 0) {
+if (!in_array($action, ['withdraw', 'override', 'settings', 'question'], true) || $cid <= 0 || $aid <= 0 || $tid <= 0) {
     nx_fail(400, 'Missing or unknown fields.');
 }
 $stm = $DBH->prepare('SELECT ver, defpoints, itemorder FROM imas_assessments WHERE id=? AND courseid=?');
@@ -233,6 +243,131 @@ if ($action === 'settings') {
     }
     $DBH->commit();
     echo json_encode(['changed' => array_keys($changed), 'taken' => $taken]);
+    exit;
+}
+
+if ($action === 'question') {
+    // --- course/modquestion2.php, process=true with an id, no copies ---
+    $qid = (int) ($payload['questionId'] ?? 0);
+    $stm = $DBH->prepare('SELECT * FROM imas_questions WHERE id=? AND assessmentid=?');
+    $stm->execute([$qid, $aid]);
+    $old_settings = $stm->fetch(PDO::FETCH_ASSOC);
+    if ($old_settings === false) {
+        nx_fail(400, 'That question is not in this assessment.');
+    }
+    $in = (array) ($payload['settings'] ?? []);
+    $allowed = array('points', 'attempts', 'penalty', 'regen', 'showans', 'showwork',
+        'showhints', 'fixedseeds', 'extracredit');
+    foreach ($in as $k => $v) {
+        if (!in_array($k, $allowed, true)) {
+            nx_fail(400, "Column $k cannot be set here.");
+        }
+    }
+    $s = array();
+    foreach ($allowed as $k) {
+        $s[$k] = array_key_exists($k, $in) ? $in[$k] : $old_settings[$k];
+    }
+    $points = (int) $s['points'];
+    if ($points < 0) {
+        nx_fail(400, 'Bad value for points.');
+    }
+    if ($points == $arow['defpoints']) {
+        $points = 9999;
+    }
+    $attempts = (int) $s['attempts'];
+    if ($attempts <= 0) {
+        $attempts = 9999;
+    }
+    $penalty = (string) $s['penalty'];
+    if (!preg_match('/^(9999|S[1-9]\d{1,3}|\d{1,3})$/', $penalty)) {
+        nx_fail(400, 'Bad value for penalty.');
+    }
+    if ($penalty[0] === 'S' && $attempts <= 1) {
+        $penalty = substr($penalty, 2); // "after n tries" needs more than one try
+    }
+    $regen = (int) $s['regen'];
+    $showans = (string) $s['showans'];
+    $showwork = (int) $s['showwork'];
+    $showhints = (int) $s['showhints'];
+    if (!in_array($regen, [0, 1], true) || !in_array($showans, ['0', 'N'], true)
+        || $showwork < -1 || $showwork > 3 || $showhints < -1 || $showhints > 7) {
+        nx_fail(400, 'Bad value for regen, showans, showwork or showhints.');
+    }
+    $fixedseeds = $s['fixedseeds'];
+    if ($fixedseeds !== null) {
+        $fixedseeds = trim((string) $fixedseeds);
+        if ($fixedseeds === '') {
+            $fixedseeds = null;
+        } else if (!preg_match('/^\d+(\s*,\s*\d+)*$/', $fixedseeds)) {
+            nx_fail(400, 'Seeds are whole numbers separated by commas.');
+        }
+    }
+    // The question's pool, if any: "n|replace|label~qid~qid..." holding this id.
+    $pool = null;
+    foreach (explode(',', $arow['itemorder']) as $v) {
+        if (strpos($v, '~') === false) {
+            continue;
+        }
+        $sub = explode('~', $v);
+        if (in_array((string) $qid, $sub, true)) {
+            $pool = $sub;
+            break;
+        }
+    }
+    $extracredit = empty($s['extracredit']) ? 0 : 1;
+    if ($pool !== null && $extracredit && empty($old_settings['extracredit'])) {
+        nx_fail(400, 'A question in a pool cannot be extra credit.');
+    }
+    $stm = $DBH->prepare('SELECT iar.userid FROM imas_assessment_records AS iar,imas_students WHERE
+        iar.assessmentid=? AND iar.userid=imas_students.userid AND imas_students.courseid=?');
+    $stm->execute([$aid, $cid]);
+    $beentaken = ($stm->rowCount() > 0);
+
+    $DBH->beginTransaction();
+    $settings = array(':points' => $points, ':attempts' => $attempts, ':penalty' => $penalty,
+        ':regen' => $regen, ':showans' => $showans, ':showwork' => $showwork,
+        ':showhints' => $showhints, ':fixedseeds' => $fixedseeds, ':extracredit' => $extracredit);
+    $stm = $DBH->prepare('UPDATE imas_questions SET points=:points,attempts=:attempts,penalty=:penalty,
+        regen=:regen,showans=:showans,showwork=:showwork,showhints=:showhints,fixedseeds=:fixedseeds,
+        extracredit=:extracredit WHERE id=:id');
+    $stm->execute(array_merge($settings, [':id' => $qid]));
+    $changes = array();
+    foreach ($old_settings as $k => $v) {
+        if (array_key_exists(':' . $k, $settings) && $settings[':' . $k] != $v) {
+            $changes[$k] = ['old' => $v, 'new' => $settings[':' . $k]];
+        }
+    }
+    if ($stm->rowCount() > 0 && $beentaken && count($changes) > 0) {
+        $changes['aid'] = $aid;
+        $changes['via'] = 'imathas-nx';
+        TeacherAuditLog::addTracking($cid, "Question Settings Change", $qid, $changes);
+    }
+    // see if question was in group if points changed, and change others in group to same
+    if ($old_settings['points'] != $points && $pool !== null) {
+        $grpparts = explode('|', $pool[0]);
+        if (strpos($pool[0], '|') !== false && $grpparts[0] < count($pool) - 1) {
+            array_shift($pool);
+            $tofix = implode(',', array_map('intval', $pool));
+            $stm = $DBH->prepare("UPDATE imas_questions SET points=? WHERE id IN ($tofix)");
+            $stm->execute([$points]);
+        }
+    }
+    require_once __DIR__ . '/../includes/updateptsposs.php';
+    updatePointsPossible($aid);
+    // Delete any teacher or tutor attempts on this assessment
+    $stm = $DBH->prepare('DELETE iar FROM imas_assessment_records AS iar JOIN
+        imas_teachers AS usr ON usr.userid=iar.userid AND usr.courseid=? WHERE iar.assessmentid=?');
+    $stm->execute(array($cid, $aid));
+    $stm = $DBH->prepare('DELETE iar FROM imas_assessment_records AS iar JOIN
+        imas_tutors AS usr ON usr.userid=iar.userid AND usr.courseid=? WHERE iar.assessmentid=?');
+    $stm->execute(array($cid, $aid));
+    // retotal student assessment records with changes
+    require_once __DIR__ . '/../assess2/AssessHelpers.php';
+    require_once __DIR__ . '/../includes/ltioutcomes.php';
+    AssessHelpers::retotalAll($cid, $aid, true, false, '', false);
+    $DBH->commit();
+    unset($changes['aid'], $changes['via']);
+    echo json_encode(['changed' => array_keys($changes), 'taken' => $beentaken]);
     exit;
 }
 
