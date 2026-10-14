@@ -10,7 +10,8 @@
  *   POST multipart: token=<base64url(json)>.<base64url(hmac-sha256)>, file=<the export>
  *   json: { "action": "course"|"library", "userId": N, "sha256": "<hex of file>", "exp": T,
  *           course:  "courseId": N, "checked": true | ["<item key>" | "0-1-2" block path ...],
- *                    "options": { "update": 1|-1, "userights": -1|0|2|3|4, "importgbsetup": 0|1 }
+ *                    "options": { "update": 1|-1, "userights": -1|0|2|3|4, "importgbsetup": 0|1,
+ *                                 "importlib"?: <library id for the new questions; 0 = Unassigned> }
  *           library: "libs": true | [<export library id>...], "parent": <library id or 0>,
  *                    "options": { "update": 1|-1|2, "userights": -1|0|2|3|4, "librights": 0|1|2|4|5|8,
  *                                 "reuselibrights"?: bool, "ownerId"?: int } }
@@ -130,10 +131,33 @@ if ($action === 'course') {
     require_once __DIR__ . '/../admin/itemexportfields.php';
     require_once __DIR__ . '/../admin/importitemsfuncs.php';
     $GLOBALS['db_fields'] = $db_fields;
+    // Which library the NEW questions are filed in (admin/importitems2.php's library picker).
+    // 0 = Unassigned, the stock default. Anything else must be a live library this teacher
+    // may add to, by the rule the stock picker uses (course/libtree3.php, selectrights=1).
+    $importlib = (int) ($opts['importlib'] ?? 0);
+    if ($importlib > 0) {
+        $stm = $DBH->prepare('SELECT ownerid, groupid, userights FROM imas_libraries WHERE id=? AND deleted=0');
+        $stm->execute([$importlib]);
+        $lib = $stm->fetch(PDO::FETCH_ASSOC);
+        if ($lib === false) {
+            nx_fail(404, 'No such library.');
+        }
+        $isgrpadmin = $myrights >= 75;
+        $mayAdd = (int) $lib['userights'] > 5
+            || (((int) $lib['userights'] % 3) > 1 && (int) $lib['groupid'] === $groupid)
+            || (int) $lib['ownerid'] === $userid
+            || ($isgrpadmin && (int) $lib['groupid'] === $groupid)
+            || $myrights === 100;
+        if (!$mayAdd) {
+            nx_fail(403, 'You may not add questions to that library.');
+        }
+    } else {
+        $importlib = 0;
+    }
     $options = [
         'update' => $update === -1 ? -1 : 1, // the stock course importer knows no force
         'userights' => $qrights,
-        'importlib' => 0,
+        'importlib' => $importlib,
     ];
     if (!empty($opts['importgbsetup'])) {
         $options['importgbsetup'] = 1;
