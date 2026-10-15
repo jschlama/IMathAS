@@ -55,6 +55,14 @@
  *       taken assessment is no different.
  *     200 { "changed": ["intro"|"summary", ...] }
  *
+ *   { "action": "rescore", "courseId": N, "assessmentId": N, "teacherId": N,
+ *     "questionId": N, "try": "first"|"last", "exp": T }
+ *     = course/gb-rescoreq2.php: after a fix to a question's code, every enrolled student's
+ *       record re-submits that try of the question (AssessRecord::regradeQuestion, scored as
+ *       their first try on that version, other tries cleared), saves, and sends the grade to
+ *       the LMS. Logged as "Change Grades" (regrade: 1) in the teacher audit log with each changed score.
+ *     200 { "records": n, "changed": [ {"userid": N, "before": x, "after": y}, ... ] }
+ *
  * The teacher must teach the course (imas_teachers), and only enrolled students are touched.
  */
 require_once __DIR__ . '/../init_without_validate.php';
@@ -97,7 +105,7 @@ $action = $payload['action'] ?? '';
 $cid = (int) ($payload['courseId'] ?? 0);
 $aid = (int) ($payload['assessmentId'] ?? 0);
 $tid = (int) ($payload['teacherId'] ?? 0);
-if (!in_array($action, ['withdraw', 'override', 'settings', 'question', 'text'], true) || $cid <= 0 || $aid <= 0 || $tid <= 0) {
+if (!in_array($action, ['withdraw', 'override', 'settings', 'question', 'text', 'rescore'], true) || $cid <= 0 || $aid <= 0 || $tid <= 0) {
     nx_fail(400, 'Missing or unknown fields.');
 }
 $stm = $DBH->prepare('SELECT ver, defpoints, itemorder FROM imas_assessments WHERE id=? AND courseid=?');
@@ -255,6 +263,52 @@ if ($action === 'settings') {
     }
     $DBH->commit();
     echo json_encode(['changed' => array_keys($changed), 'taken' => $taken]);
+    exit;
+}
+
+if ($action === 'rescore') {
+    // --- course/gb-rescoreq2.php ---
+    $qid = (int) ($payload['questionId'] ?? 0);
+    $stm = $DBH->prepare('SELECT 1 FROM imas_questions WHERE id=? AND assessmentid=?');
+    $stm->execute([$qid, $aid]);
+    if ($stm->fetchColumn() === false) {
+        nx_fail(400, 'That question is not in this assessment.');
+    }
+    $trytouse = (($payload['try'] ?? 'first') === 'last') ? 'last' : 'first';
+    // The page's own globals the scoring reads: the teacher's rights (question code may be
+    // allowed more by them).
+    $stm = $DBH->prepare('SELECT rights FROM imas_users WHERE id=?');
+    $stm->execute([$tid]);
+    $GLOBALS['myrights'] = $myrights = (int) $stm->fetchColumn();
+    $assess_info = new AssessInfo($DBH, $aid, $cid, false);
+    $assess_info->loadQuestionSettings('all', true, false);
+    $DBH->beginTransaction();
+    $stm = $DBH->prepare('SELECT iar.* FROM imas_assessment_records AS iar
+        JOIN imas_students ON imas_students.userid = iar.userid
+        WHERE iar.assessmentid = :assessmentid AND imas_students.courseid = :courseid FOR UPDATE');
+    $stm->execute(array(':courseid' => $cid, ':assessmentid' => $aid));
+    $records = 0;
+    $changed = array();
+    while ($row = $stm->fetch(PDO::FETCH_ASSOC)) {
+        $GLOBALS['assessver'] = $row['ver'];
+        $assess_record = new AssessRecord($DBH, $assess_info, false);
+        $assess_record->setRecord($row);
+        $assess_record->setTeacherInGb(true);
+        $assess_record->regradeQuestion($qid, $trytouse);
+        $assess_record->updateLTIscore(true, false);
+        $assess_record->saveRecord();
+        $records++;
+        $after = $assess_record->getGbScore()['gbscore'];
+        if (abs(floatval($after) - floatval($row['score'])) > 0.0001) {
+            $changed[] = array('userid' => intval($row['userid']), 'before' => floatval($row['score']), 'after' => floatval($after));
+        }
+    }
+    if (count($changed) > 0) {
+        TeacherAuditLog::addTracking($cid, 'Change Grades', $aid, array('regrade' => 1,
+            'qid' => $qid, 'try' => $trytouse, 'changes' => $changed, 'via' => 'imathas-nx'));
+    }
+    $DBH->commit();
+    echo json_encode(['records' => $records, 'changed' => $changed]);
     exit;
 }
 
