@@ -43,6 +43,18 @@
  *       every student record re-totalled with grades sent to the LMS.
  *     200 { "changed": ["<column>", ...], "taken": bool }
  *
+ *   { "action": "text", "courseId": N, "assessmentId": N, "teacherId": N,
+ *     "intro": "<html>", "summary": "<html>" (optional), "segments": [ {displayBefore, displayUntil,
+ *     text, ispage, pagetitle, forntype}, ... ], "itemorder": "<the order nx placed them in>",
+ *     "exp": T }
+ *     = the teacher's text: addassessment2.php's summary and intro (trimEmptyPara, incomingHtml)
+ *       and addquestionssave.php's text segments (myhtmlawed text, strip_tags page title),
+ *       stored as addquestionssave.php stores them: [intro, segment...] as JSON, or the bare
+ *       intro when there are no segments. Refused when the item order is no longer the one nx
+ *       placed the segments against (the page's lastitemhash). Text changes no score, so a
+ *       taken assessment is no different.
+ *     200 { "changed": ["intro"|"summary", ...] }
+ *
  * The teacher must teach the course (imas_teachers), and only enrolled students are touched.
  */
 require_once __DIR__ . '/../init_without_validate.php';
@@ -85,7 +97,7 @@ $action = $payload['action'] ?? '';
 $cid = (int) ($payload['courseId'] ?? 0);
 $aid = (int) ($payload['assessmentId'] ?? 0);
 $tid = (int) ($payload['teacherId'] ?? 0);
-if (!in_array($action, ['withdraw', 'override', 'settings', 'question'], true) || $cid <= 0 || $aid <= 0 || $tid <= 0) {
+if (!in_array($action, ['withdraw', 'override', 'settings', 'question', 'text'], true) || $cid <= 0 || $aid <= 0 || $tid <= 0) {
     nx_fail(400, 'Missing or unknown fields.');
 }
 $stm = $DBH->prepare('SELECT ver, defpoints, itemorder FROM imas_assessments WHERE id=? AND courseid=?');
@@ -243,6 +255,78 @@ if ($action === 'settings') {
     }
     $DBH->commit();
     echo json_encode(['changed' => array_keys($changed), 'taken' => $taken]);
+    exit;
+}
+
+if ($action === 'text') {
+    // --- addassessment2.php (summary, intro) + addquestionssave.php (text segments) ---
+    if ((string) ($payload['itemorder'] ?? '') !== (string) $arow['itemorder']) {
+        nx_fail(409, 'The questions changed while you were editing. Reload and try again.');
+    }
+    // Question positions: a bare question is one, a pool shows n.
+    $qcount = 0;
+    if ($arow['itemorder'] !== '') {
+        foreach (explode(',', $arow['itemorder']) as $v) {
+            if (strpos($v, '~') === false) {
+                $qcount++;
+            } else {
+                $head = explode('~', $v)[0];
+                $qcount += (strpos($head, '|') === false) ? 1 : (int) explode('|', $head)[0];
+            }
+        }
+    }
+    require_once __DIR__ . '/../includes/htmLawed.php';
+    $clean = function ($html) {
+        $html = Sanitize::trimEmptyPara((string) $html);
+        return ($html === '<p></p>') ? '' : Sanitize::incomingHtml($html);
+    };
+    $intro = $clean($payload['intro'] ?? '');
+    // Left out = left as it is (nx has no course page, so it may not edit the summary).
+    $hasSummary = array_key_exists('summary', $payload);
+    $summary = $hasSummary ? $clean($payload['summary']) : null;
+    $segs = array();
+    foreach ((array) ($payload['segments'] ?? []) as $seg) {
+        if (!is_array($seg) || count($segs) >= 200) {
+            nx_fail(400, 'Bad text segments.');
+        }
+        $before = (int) ($seg['displayBefore'] ?? -1);
+        $until = (int) ($seg['displayUntil'] ?? -1);
+        if ($before < 0 || $before > $qcount || $until < $before || $until > max($qcount - 1, $before)) {
+            nx_fail(400, 'A text segment is placed outside the questions.');
+        }
+        $segs[] = array(
+            'displayBefore' => $before,
+            'displayUntil' => $until,
+            'text' => myhtmlawed((string) ($seg['text'] ?? '')),
+            'ispage' => empty($seg['ispage']) ? 0 : 1,
+            'pagetitle' => mb_substr(strip_tags((string) ($seg['pagetitle'] ?? '')), 0, 255),
+            'forntype' => empty($seg['forntype']) ? 0 : 1,
+        );
+    }
+    usort($segs, function ($a, $b) { return $a['displayBefore'] - $b['displayBefore']; });
+    if (count($segs) > 0) {
+        array_unshift($segs, $intro);
+        $newintro = json_encode($segs, JSON_INVALID_UTF8_IGNORE);
+    } else {
+        $newintro = $intro;
+    }
+    $stm = $DBH->prepare('SELECT intro, summary FROM imas_assessments WHERE id=?');
+    $stm->execute([$aid]);
+    $cur = $stm->fetch(PDO::FETCH_ASSOC);
+    $changed = array();
+    if ($cur['intro'] !== $newintro) {
+        $changed[] = 'intro';
+    }
+    if (!$hasSummary) {
+        $summary = $cur['summary'];
+    } else if ($cur['summary'] !== $summary) {
+        $changed[] = 'summary';
+    }
+    if (count($changed) > 0) {
+        $stm = $DBH->prepare('UPDATE imas_assessments SET intro=?, summary=? WHERE id=? AND itemorder=?');
+        $stm->execute([$newintro, $summary, $aid, $arow['itemorder']]);
+    }
+    echo json_encode(['changed' => $changed]);
     exit;
 }
 
