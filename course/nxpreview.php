@@ -71,10 +71,23 @@ $seed = isset($_POST['seed']) ? intval($_POST['seed']) : rand(0, 10000);
 // seed, so the new app can validate a draft across many randomizations.
 $jsonMode = (($_POST['format'] ?? '') === 'json');
 $a2 = new AssessStandalone($DBH);
-$a2->setQuestionData(0, $data);
+// A saved question's images ($pic in its text) are its imas_qimages rows, found by its id:
+// preview under that id when it has any. Images are display only, so the preview token is
+// trust enough to name a question.
+$pid = 0;
+if (!empty($_POST['qsetid']) && (int) $_POST['qsetid'] > 0) {
+    $stm = $DBH->prepare('SELECT COUNT(*) FROM imas_qimages WHERE qsetid=?');
+    $stm->execute([(int) $_POST['qsetid']]);
+    if ((int) $stm->fetchColumn() > 0) {
+        $pid = (int) $_POST['qsetid'];
+        $data['id'] = $pid;
+        $data['hasimg'] = 1;
+    }
+}
+$a2->setQuestionData($pid, $data);
 $a2->setState([
     'seeds' => [$qn => $seed],
-    'qsid' => [$qn => 0],
+    'qsid' => [$qn => $pid],
     'stuanswers' => [], 'stuanswersval' => [],
     'scorenonzero' => [($qn + 1) => -1], 'scoreiscorrect' => [($qn + 1) => -1],
     'partattemptn' => [$qn => []], 'rawscores' => [$qn => []]
