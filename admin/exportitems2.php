@@ -11,7 +11,11 @@ ini_set("max_execution_time", "900");
 
 
 /*** master php includes *******/
-require_once "../init.php";
+// lti/nxexport.php (fork) has already authorised the request with its signed token and set
+// the course and teacher; everything below runs exactly as it does for a signed-in teacher.
+if (!defined('NX_EXPORT')) {
+	require_once "../init.php";
+}
 require_once "../includes/filehandler.php";
 require_once "../includes/copyiteminc.php";
 require_once "../includes/loaditemshowdata.php";
