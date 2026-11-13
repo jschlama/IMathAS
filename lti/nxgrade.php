@@ -417,7 +417,9 @@ if ($action === 'question') {
         $attempts = 9999;
     }
     $penalty = (string) $s['penalty'];
-    if (!preg_match('/^(9999|S[1-9]\d{1,3}|\d{1,3})$/', $penalty)) {
+    // L<pct>: only on the last try, an older IMathAS penalty assess2 still reads
+    // (AssessInfo::getQuestionSettings); nx writes it back as it was read.
+    if (!preg_match('/^(9999|S[1-9]\d{1,3}|L\d{1,3}|\d{1,3})$/', $penalty)) {
         nx_fail(400, 'Bad value for penalty.');
     }
     if ($penalty[0] === 'S' && $attempts <= 1) {
