@@ -13,10 +13,17 @@
  *
  * Method: GET
  *   cid, aid, qid   the course, assessment and imas_questions id
- *   ver             'scored' (default) or 'last', as gradeallq2
+ *   ver             'scored' (default), 'last' or 'all', as gradeallq2: with 'all', every
+ *                   version of the question each student has (by question) or every submitted
+ *                   assessment version (by assessment), each its own entry in locs
  *
  * Returns: { name, qid, qsetid, points, submitby, isgroup, students: [ { userid, name,
- *   section, locked, work: [html, time]|null, locs: [ {ver, qn, dispqn, ...question data} ] } ] }
+ *   section, locked, work: [html, time]|null, locs: [ {ver, av, qv, counts, qn, dispqn,
+ *   ...question data} ] } ] }
+ *   ver     getQuestionLocs' key: the question version by question, the assessment version by
+ *           assessment
+ *   av, qv  the assessment and question version, as gbsave's keys need them (av-qn-qv-pn)
+ *   counts  whether this is the version that counts in the gradebook
  */
 
 $no_session_handler = 'json_error';
@@ -33,7 +40,7 @@ check_for_required('GET', array('aid', 'cid', 'qid'));
 $cid = Sanitize::onlyInt($_GET['cid']);
 $aid = Sanitize::onlyInt($_GET['aid']);
 $qid = Sanitize::onlyInt($_GET['qid']);
-$ver = (isset($_GET['ver']) && $_GET['ver'] === 'last') ? 'last' : 'scored';
+$ver = (isset($_GET['ver']) && in_array($_GET['ver'], ['last', 'all'], true)) ? $_GET['ver'] : 'scored';
 
 if (!$isActualTeacher && !$istutor) {
   echo '{"error": "no_access"}';
@@ -107,6 +114,10 @@ while ($line = $stm->fetch(PDO::FETCH_ASSOC)) {
   $teacherreview = $line['userid'];
 
   $locdata = $assess_record->getQuestionLocs($qid, $ver);
+  // The version that counts: the assessment version by assessment, each question's own
+  // version by question.
+  $scoredAv = $assess_record->getGbScore()['scored_version'];
+  $scoredQvs = $assess_record->getGbAssessScoresAndQVersions();
   $singlework = null;
   if ($submitby != 'by_assessment') {
     $singlework = $assess_record->getGenShowwork('last');
@@ -119,6 +130,15 @@ while ($line = $stm->fetch(PDO::FETCH_ASSOC)) {
     foreach ($lockeys as $loc) {
       $qdata = $assess_record->getGbQuestionVersionData($loc, true, $vernum, $cnt);
       $qdata['ver'] = $vernum;
+      if ($submitby == 'by_assessment') {
+        $qdata['av'] = $vernum;
+        $qdata['qv'] = 0;
+        $qdata['counts'] = ($vernum == $scoredAv);
+      } else {
+        $qdata['av'] = 0;
+        $qdata['qv'] = $vernum;
+        $qdata['counts'] = (($scoredQvs[0]['scoredvers'][$loc] ?? -1) == $vernum);
+      }
       $qdata['qn'] = $loc;
       $qdata['dispqn'] = $cnt;
       $locs[] = $qdata;

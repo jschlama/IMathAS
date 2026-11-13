@@ -59,7 +59,11 @@ $data = array_merge([
     'qtext' => $_POST['qtext'] ?? null,
     'answer' => $_POST['answer'] ?? null,
     'solution' => $_POST['solution'] ?? null,
-    'extref' => $_POST['extref'] ?? null
+    'extref' => $_POST['extref'] ?? null,
+    // Whether the solution is offered as a written example (2) and how (1): without it a
+    // preview never shows the Written example a student would get.
+    'solutionopts' => (isset($_POST['solutionopts']) && $_POST['solutionopts'] !== '')
+        ? intval($_POST['solutionopts']) : null
 ], fn($v) => $v !== null));
 
 // The engine's macro parser reads a few globals a login would normally set. This is a
