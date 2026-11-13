@@ -8,6 +8,15 @@
  * returns a self-contained page (no header chrome) with just the scripts a rendered question
  * needs. It authorises with the shared HMAC token (NX_HANDOFF_SECRET), never a login, and it
  * only ever renders content the caller supplied — it reads nothing from imas_questionset.
+ *
+ * Three answers, by `format`:
+ *  - none: the HTML page, for a frame;
+ *  - `json`: the seed-sweep's oracle (the correct answers and any render errors);
+ *  - `question`: the question as data for nx to mount itself (its html and the settings its
+ *    script needs), and with `toscoreqn` and the answer fields, the answer scored first so the
+ *    html comes back marked — the tryable preview. Nothing is stored: what a try needs (the
+ *    tries and scores per part, the answers so far) travels with each request as `state`, as
+ *    testquestion2.php keeps it in a hidden field.
  */
 $init_skip_csrfp = true;
 require_once '../init_without_validate.php';
@@ -63,6 +72,9 @@ $myrights = 100;
 // is fine — preview needs no persistence.
 $_SESSION['graphdisp'] = 1;
 $_SESSION['mathdisp'] = 6;
+// What a signed-in user's preferences would say (the defaults): scoring reads them
+// (ScoreEngine: graphdisp, drawentry) and warns without them.
+$_SESSION['userprefs'] = ['graphdisp' => 1, 'drawentry' => 1, 'useeqed' => 1];
 
 $qn = 27;
 $seed = isset($_POST['seed']) ? intval($_POST['seed']) : rand(0, 10000);
@@ -70,6 +82,7 @@ $seed = isset($_POST['seed']) ? intval($_POST['seed']) : rand(0, 10000);
 // returns the engine-resolved correct answer(s) + any render errors for this
 // seed, so the new app can validate a draft across many randomizations.
 $jsonMode = (($_POST['format'] ?? '') === 'json');
+$questionMode = (($_POST['format'] ?? '') === 'question');
 $a2 = new AssessStandalone($DBH);
 // A saved question's images ($pic in its text) are its imas_qimages rows, found by its id:
 // preview under that id when it has any. Images are display only, so the preview token is
@@ -85,13 +98,47 @@ if (!empty($_POST['qsetid']) && (int) $_POST['qsetid'] > 0) {
     }
 }
 $a2->setQuestionData($pid, $data);
-$a2->setState([
+$state = [
     'seeds' => [$qn => $seed],
     'qsid' => [$qn => $pid],
     'stuanswers' => [], 'stuanswersval' => [],
     'scorenonzero' => [($qn + 1) => -1], 'scoreiscorrect' => [($qn + 1) => -1],
     'partattemptn' => [$qn => []], 'rawscores' => [$qn => []]
-]);
+];
+// A try in progress: its tries, scores and answers so far, as the last answer returned them.
+// Only this question's entries are taken; the version (seed) and the question (qsid) are
+// always the request's own, never the state's.
+if ($questionMode && !empty($_POST['state'])) {
+    $given = json_decode($_POST['state'], true);
+    if (is_array($given)) {
+        foreach (['partattemptn', 'rawscores', 'wrongfmt'] as $k) {
+            if (isset($given[$k][$qn]) && is_array($given[$k][$qn])) {
+                $state[$k][$qn] = $given[$k][$qn];
+            }
+        }
+        foreach (['stuanswers', 'stuanswersval', 'scorenonzero', 'scoreiscorrect'] as $k) {
+            if (isset($given[$k][$qn + 1])) {
+                $state[$k][$qn + 1] = $given[$k][$qn + 1];
+            }
+        }
+    }
+}
+$a2->setState($state);
+// Score the parts named in `toscoreqn` ({"27": [0, 2]}), from the posted answer fields
+// (qn27, or qn28000 and on for a multipart question), as testquestion2.php does.
+$scored = null;
+if ($questionMode && isset($_POST['toscoreqn'])) {
+    $toscore = json_decode($_POST['toscoreqn'], true);
+    $parts_to_score = [];
+    if (is_array($toscore) && isset($toscore[$qn]) && is_array($toscore[$qn])) {
+        foreach ($toscore[$qn] as $pn) {
+            $parts_to_score[intval($pn)] = true;
+        }
+    }
+    if (count($parts_to_score) > 0) {
+        $scored = $a2->scoreQuestion($qn, $parts_to_score);
+    }
+}
 // includeans populates jsparams['ans'] (Question::getCorrectAnswersForParts) — the
 // sweep's oracle. Also on when the teacher asked to see the answer in the preview.
 $disp = $a2->displayQuestion($qn, [
@@ -99,6 +146,39 @@ $disp = $a2->displayQuestion($qn, [
     'includeans' => ($jsonMode || !empty($_POST['showans'])),
     'showteachernotes' => true
 ]);
+
+if ($questionMode) {
+    // Per part: the tries made and the last raw score (0–1), null until it is scored.
+    $st = $a2->getState();
+    $q = $a2->getQuestion();
+    $answeights = $q ? $q->getAnswerPartWeights() : [1];
+    $parts = [];
+    for ($pn = 0; $pn < max(1, count($answeights)); $pn++) {
+        $parts[] = [
+            'try' => intval($st['partattemptn'][$qn][$pn] ?? 0),
+            'rawscore' => isset($st['rawscores'][$qn][$pn]) ? floatval($st['rawscores'][$qn][$pn]) : null
+        ];
+    }
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode([
+        'qn' => $qn,
+        'seed' => intval($seed),
+        'html' => $disp['html'],
+        'jsparams' => $disp['jsparams'],
+        'answeights' => $answeights,
+        'parts' => $parts,
+        'state' => $st,
+        'scoreErrors' => array_values(array_map(
+            fn($e) => is_array($e) ? implode(' ', $e) : (string) $e,
+            $scored['errors'] ?? []
+        )),
+        'errors' => array_map(
+            fn($e) => is_array($e) ? implode(' ', $e) : (string) $e,
+            $disp['errors'] ?? []
+        )
+    ]);
+    exit;
+}
 
 if ($jsonMode) {
     header('Content-Type: application/json; charset=utf-8');
