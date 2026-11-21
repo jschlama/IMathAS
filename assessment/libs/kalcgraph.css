@@ -1,0 +1,197 @@
+/**
+ * KalcGraph — self-contained theme (Spec §1.5).
+ * All 12 --gl- tokens with ember-navy defaults: a bare HTML page with only
+ * this file + the IIFE bundle renders correctly. Host pages may override
+ * any token on .kalcgraph or an ancestor.
+ */
+
+/* Dark values reconciled against dev/kalcgraph-parity-demo.canonical.html
+   (Phase 2 Step 0). Deliberate deviations, per John's live-approved tweaks:
+   --gl-grid/--gl-grid-minor brighter than the mockup's 0.04. */
+.kalcgraph,
+.kalcgraph[data-theme="dark"],
+.kg-explore {
+  --gl-bg: #0b0b16;
+  --gl-surface: #13132a;
+  --gl-border: #1e1e3a;
+  --gl-text: #e2e2f0;
+  --gl-text-muted: #8888aa;
+  --gl-canvas: #0d0d1a;
+  --gl-danger: #ef4444;
+  --gl-success: #10b981;
+  --gl-grid: rgba(255, 255, 255, 0.14);
+  --gl-grid-minor: rgba(255, 255, 255, 0.06);
+  --gl-axis: rgba(255, 255, 255, 0.35);
+  --gl-tick-label: #e2e2f0;
+}
+
+.kalcgraph[data-theme="light"],
+.kalcgraph[data-theme="light"] + .kg-explore {
+  --gl-bg: #ffffff;
+  --gl-surface: #f8f8f8;
+  --gl-border: #e0e0e0;
+  --gl-text: #1a1a1a;
+  --gl-text-muted: #888888;
+  --gl-canvas: #ffffff;
+  --gl-danger: #dc2626;
+  --gl-success: #059669;
+  --gl-grid: rgba(0, 0, 0, 0.18);
+  --gl-grid-minor: rgba(0, 0, 0, 0.08);
+  --gl-axis: rgba(0, 0, 0, 0.7);
+  --gl-tick-label: #333333;
+}
+
+.kalcgraph {
+  position: relative;
+  background: var(--gl-canvas);
+  border: 1px solid var(--gl-border);
+  border-radius: 10px;
+  overflow: hidden;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  color: var(--gl-text);
+}
+
+/* JSXGraph board scoping (mirrors graphlab.css board rules) */
+.kalcgraph .jxgbox {
+  width: 100% !important;
+  height: 100% !important;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+}
+.kalcgraph .JXGtext { font-family: 'DM Sans', system-ui, sans-serif !important; user-select: none; pointer-events: none; }
+.kalcgraph .JXG_navigation { display: none !important; }
+.kalcgraph svg { overflow: hidden; }
+
+/* Hover-trace overlay (created by mount) */
+.kalcgraph .kg-trace-dot {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #f59e0b; /* ember */
+  box-shadow: 0 0 0 2.5px var(--gl-canvas), 0 0 8px rgba(245, 158, 11, 0.7);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 4;
+}
+.kalcgraph .kg-trace-chip {
+  position: absolute;
+  transform: translate(-50%, -130%);
+  background: var(--gl-surface);
+  border: 1px solid var(--gl-border);
+  border-radius: 6px;
+  padding: 4px 9px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--gl-text);
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  z-index: 5;
+}
+
+/* Zoom overlay (created by mount when options.zoomButtons && !lockViewport) */
+.kalcgraph .kg-zoom {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 6;
+}
+.kalcgraph .kg-zoom button {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--gl-border);
+  background: var(--gl-surface);
+  color: var(--gl-text-muted);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.kalcgraph .kg-zoom button:hover { color: var(--gl-text); border-color: var(--gl-text-muted); }
+
+/* "Not graphable yet" hint (v1.1 answerbox binding) — status, not an error */
+.kalcgraph .kg-parse-hint {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  padding: 3px 9px;
+  border-radius: 6px;
+  background: var(--gl-surface);
+  border: 1px dashed var(--gl-border);
+  color: var(--gl-text-muted);
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-size: 11px;
+  font-style: italic;
+  pointer-events: none;
+  z-index: 6;
+}
+
+/* Explore drawer (v1.1) — ungraded scratch curves, rendered after the board */
+.kg-explore {
+  margin-top: 8px;
+  font-family: 'DM Sans', system-ui, sans-serif;
+}
+.kg-explore .kg-explore-row { display: flex; gap: 6px; }
+.kg-explore input {
+  flex: 1;
+  max-width: 340px;
+  background: var(--gl-canvas, #0d0d1a);
+  border: 1px solid var(--gl-border, #1e1e3a);
+  border-radius: 7px;
+  color: var(--gl-text, #e2e2f0);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px;
+  padding: 6px 9px;
+}
+.kg-explore button {
+  width: 30px;
+  border: 1px solid var(--gl-border, #1e1e3a);
+  border-radius: 7px;
+  background: var(--gl-surface, #13132a);
+  color: var(--gl-text-muted, #8888aa);
+  font-size: 15px;
+  cursor: pointer;
+}
+.kg-explore button:hover { color: var(--gl-text, #e2e2f0); }
+.kg-explore .kg-explore-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.kg-explore .kg-explore-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px 2px 8px;
+  border: 1px solid var(--gl-border, #1e1e3a);
+  border-radius: 999px;
+  background: var(--gl-surface, #13132a);
+  color: var(--gl-text, #e2e2f0);
+  font-size: 11px;
+}
+.kg-explore .kg-explore-chip i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.kg-explore .kg-explore-chip code { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+.kg-explore .kg-explore-chip button { width: auto; border: none; background: none; padding: 0 4px; font-size: 13px; }
+
+/* ── Author layout helper (v1.2) ─────────────────────────────────────────
+   Two-column question layout: wrap qtext content in <div class="kg-cols">
+   with two child divs (e.g. prompt + answer box left, $gr right). Columns
+   sit side by side when there is room and stack on narrow screens. The
+   board (fixed pixel size) shrinks rather than overflowing its column. */
+.kg-cols {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  align-items: flex-start;
+}
+.kg-cols > * {
+  flex: 1 1 300px;
+  min-width: 0;
+}
+.kg-cols .kalcgraph {
+  max-width: 100%;
+}
