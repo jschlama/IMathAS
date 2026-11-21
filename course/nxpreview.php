@@ -88,17 +88,24 @@ $seed = isset($_POST['seed']) ? intval($_POST['seed']) : rand(0, 10000);
 $jsonMode = (($_POST['format'] ?? '') === 'json');
 $questionMode = (($_POST['format'] ?? '') === 'question');
 $a2 = new AssessStandalone($DBH);
-// A saved question's images ($pic in its text) are its imas_qimages rows, found by its id:
-// preview under that id when it has any. Images are display only, so the preview token is
-// trust enough to name a question.
+// A saved question previews under its own id, as the player shows it: its code sees its real
+// $db_qsetid (the KOVALNA homework bridge builds its link from it, the KOV coding tools key their
+// spec on it; under id 0 the bridge said "This homework link is incomplete"), and its images
+// ($pic in its text) are its imas_qimages rows, found by that id. The id only names the question:
+// what is rendered is still the posted fields above, never the saved row. The preview token is
+// trust enough to name a question; it must exist.
 $pid = 0;
 if (!empty($_POST['qsetid']) && (int) $_POST['qsetid'] > 0) {
-    $stm = $DBH->prepare('SELECT COUNT(*) FROM imas_qimages WHERE qsetid=?');
+    $stm = $DBH->prepare('SELECT id FROM imas_questionset WHERE id=?');
     $stm->execute([(int) $_POST['qsetid']]);
-    if ((int) $stm->fetchColumn() > 0) {
+    if ($stm->fetchColumn() !== false) {
         $pid = (int) $_POST['qsetid'];
         $data['id'] = $pid;
-        $data['hasimg'] = 1;
+        $stm = $DBH->prepare('SELECT COUNT(*) FROM imas_qimages WHERE qsetid=?');
+        $stm->execute([$pid]);
+        if ((int) $stm->fetchColumn() > 0) {
+            $data['hasimg'] = 1;
+        }
     }
 }
 $a2->setQuestionData($pid, $data);
