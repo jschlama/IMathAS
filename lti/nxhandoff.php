@@ -54,6 +54,34 @@ if (!is_array($payload) || ($payload['exp'] ?? 0) < time()) {
     http_response_code(401);
     exit('Hand-off token is expired or malformed.');
 }
+// One secret signs several kinds of token (hand-off, preview, release, import, ...). A token
+// that names another purpose is not a hand-off, whatever else it carries. (A token with no
+// purpose at all is an older nx's hand-off, still accepted.)
+if (isset($payload['purpose']) && $payload['purpose'] !== 'handoff') {
+    http_response_code(401);
+    exit('That token is not a hand-off token.');
+}
+// Once only: the token travels in a URL, so within its lifetime a copy (a log, a shared link,
+// browser history) could otherwise open the student's session again. Spent ids are kept in
+// imas_ltinonces, as LTI launch nonces are, under a lock so two copies can't both pass.
+if (isset($payload['jti'])) {
+    $jti = 'nxh:' . substr(preg_replace('/[^A-Za-z0-9-]/', '', (string) $payload['jti']), 0, 64);
+    $lock = 'nxh_' . sha1($jti);
+    $got = $DBH->query('SELECT GET_LOCK(' . $DBH->quote($lock) . ', 0)')->fetchColumn();
+    if ((int) $got !== 1) {
+        http_response_code(401);
+        exit('That hand-off is already being used.');
+    }
+    $stm = $DBH->prepare('SELECT 1 FROM imas_ltinonces WHERE nonce=? LIMIT 1');
+    $stm->execute([$jti]);
+    if ($stm->fetchColumn()) {
+        $DBH->query('SELECT RELEASE_LOCK(' . $DBH->quote($lock) . ')');
+        http_response_code(401);
+        exit('That hand-off link was already used. Open the assignment again from your course.');
+    }
+    $DBH->prepare('INSERT INTO imas_ltinonces (nonce,time) VALUES (?,?)')->execute([$jti, time()]);
+    $DBH->query('SELECT RELEASE_LOCK(' . $DBH->quote($lock) . ')');
+}
 
 $mode = ($payload['mode'] ?? 'launch') === 'preview' ? 'preview' : 'launch';
 $sub = (string) ($payload['sub'] ?? '');
@@ -159,23 +187,34 @@ if ($role === 'instructor') {
     // IMathAS writes for an LMS due date (lti/Database.php set_or_update_duedate_exception):
     // enddate is when the student's scored work closes, manualexceptionend is the due date
     // lateness counts from (AssessInfo::setException). nx gives the assessment itself no dates,
-    // so this row is how the engine knows each student's own due date. A row already running
-    // past the due date (a LatePass, make-up access, or a teacher's extension) keeps its end.
+    // so this row is how the engine knows each student's own due date.
+    //
+    // The rule is nx's dueRowPlan (lib/server/latework/rows.ts), kept in step: a row is an
+    // extension (a LatePass, make-up access, a teacher's extension) when its end runs past the
+    // due date it was WRITTEN against, its own manualexceptionend. An extension keeps its end
+    // unless the new due date passes it; any other row takes the section's dates. Measuring
+    // against the NEW due date (as this did) kept every plain row when a teacher moved the due
+    // date earlier, so a relaunch undid the change. islatepass is never reset here: it counts
+    // the passes spent on the row.
     $nxdue = (int) ($payload['dueAt'] ?? 0);
     if ($nxdue > 0) {
         $nxopens = max(0, (int) ($payload['opensAt'] ?? 0));
-        $stm = $DBH->prepare("SELECT id,enddate FROM imas_exceptions WHERE userid=? AND assessmentid=? AND itemtype='A'");
+        $stm = $DBH->prepare("SELECT id,enddate,manualexceptionend FROM imas_exceptions WHERE userid=? AND assessmentid=? AND itemtype='A'");
         $stm->execute([$userid, $aid]);
         $xrow = $stm->fetch(PDO::FETCH_ASSOC);
         if ($xrow === false) {
             $DBH->prepare("INSERT INTO imas_exceptions (userid,assessmentid,itemtype,startdate,enddate,islatepass,is_lti,manualexceptionend) VALUES (?,?,'A',?,?,0,1,?)")
                 ->execute([$userid, $aid, $nxopens, $nxdue, $nxdue]);
-        } else if ((int) $xrow['enddate'] > $nxdue) {
-            $DBH->prepare('UPDATE imas_exceptions SET startdate=?,is_lti=1,manualexceptionend=? WHERE id=?')
-                ->execute([$nxopens, $nxdue, $xrow['id']]);
         } else {
-            $DBH->prepare('UPDATE imas_exceptions SET startdate=?,enddate=?,is_lti=1,islatepass=0,manualexceptionend=? WHERE id=?')
-                ->execute([$nxopens, $nxdue, $nxdue, $xrow['id']]);
+            $xend = (int) $xrow['enddate'];
+            $baseline = (int) $xrow['manualexceptionend'] > 0 ? (int) $xrow['manualexceptionend'] : $nxdue;
+            if ($xend > $baseline && $xend > $nxdue) {
+                $DBH->prepare('UPDATE imas_exceptions SET startdate=?,is_lti=1,manualexceptionend=? WHERE id=?')
+                    ->execute([$nxopens, $nxdue, $xrow['id']]);
+            } else {
+                $DBH->prepare('UPDATE imas_exceptions SET startdate=?,enddate=?,is_lti=1,manualexceptionend=? WHERE id=?')
+                    ->execute([$nxopens, $nxdue, $nxdue, $xrow['id']]);
+            }
         }
     }
 }
