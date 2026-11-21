@@ -70,13 +70,20 @@ for f in infoheader loginpage newinstructor; do
   [ -f "$f.php" ] || cp "$f.php.dist" "$f.php"
 done
 
-# Writable directories -> the volume (survive redeploys). Seed each from the image on first run.
+# Writable directories -> the volume (survive redeploys). Seed each from the image on first run;
+# assessment/libs is also refreshed from the image on every start (below).
 mkdir -p /data
 for d in filestore course/files assessment/libs assessment/qimages filter/graph/imgs admin/import; do
   name=$(echo "$d" | tr '/' '_')
   if [ ! -d "/data/$name" ]; then
     mkdir -p "/data/$name"
     if [ -d "$d" ] && [ ! -L "$d" ]; then cp -a "$d/." "/data/$name/" 2>/dev/null || true; fi
+  elif [ "$d" = "assessment/libs" ] && [ -d "$d" ] && [ ! -L "$d" ]; then
+    # The macro libraries are code as well as a place admins install into: the ones this
+    # image ships replace their copies on the volume at every start, so a library added or
+    # changed in the repo reaches the site (seeded once, they never did: KALCGRAPH.php 404'd).
+    # A library an admin installed under another name stays.
+    cp -a "$d/." "/data/$name/"
   fi
   rm -rf "$d"
   ln -s "/data/$name" "$d"
