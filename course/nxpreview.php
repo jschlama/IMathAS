@@ -79,6 +79,11 @@ $_SESSION['mathdisp'] = 6;
 // What a signed-in user's preferences would say (the defaults): scoring reads them
 // (ScoreEngine: graphdisp, drawentry) and warns without them.
 $_SESSION['userprefs'] = ['graphdisp' => 1, 'drawentry' => 1, 'useeqed' => 1];
+// Math entry help (MathQuill and its keyboard), as every assessment nx makes has it
+// (eqnhelper 2; AssessInfo::normalizeSettings sets this global from it). Without it Try and
+// the editor's preview showed a plain text box with a Preview button, which no student sees.
+$GLOBALS['useeqnhelper'] = 2;
+$useeqnhelper = 2;
 
 $qn = 27;
 $seed = isset($_POST['seed']) ? intval($_POST['seed']) : rand(0, 10000);
