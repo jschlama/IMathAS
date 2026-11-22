@@ -78,7 +78,10 @@ $_SESSION['graphdisp'] = 1;
 $_SESSION['mathdisp'] = 6;
 // What a signed-in user's preferences would say (the defaults): scoring reads them
 // (ScoreEngine: graphdisp, drawentry) and warns without them.
-$_SESSION['userprefs'] = ['graphdisp' => 1, 'drawentry' => 1, 'useeqed' => 1];
+// `useed` is the rich-editor preference the essay box reads (EssayAnswerBox): without it every
+// essay preview warned "Undefined array key useed" and showed a plain box, not the editor a
+// student gets.
+$_SESSION['userprefs'] = ['graphdisp' => 1, 'drawentry' => 1, 'useeqed' => 1, 'useed' => 1];
 // Math entry help (MathQuill and its keyboard), as every assessment nx makes has it
 // (eqnhelper 2; AssessInfo::normalizeSettings sets this global from it). Without it Try and
 // the editor's preview showed a plain text box with a Preview button, which no student sees.
