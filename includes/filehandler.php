@@ -125,6 +125,39 @@ function getgraphfileurl($key) {
 	}
 }
 
+/**
+ * copy() for rehostfile, with a time limit. The importers rehost every image and file one
+ * after another, inside a transaction; PHP's own wait (default_socket_timeout, 60s per
+ * stall) on a host that doesn't answer (a district server that refuses cloud addresses)
+ * held whole imports open for half an hour. Each download gets REHOST_TIMEOUT seconds, and
+ * after one failure the rest of that host's files are skipped for this request. Skipped
+ * URLs are listed in $GLOBALS['rehostfailed'].
+ */
+const REHOST_TIMEOUT = 10;
+function rehostcopy($url, $dest) {
+	static $deadhosts = array();
+	$host = strtolower((string) parse_url($url, PHP_URL_HOST));
+	if (isset($deadhosts[$host])) {
+		$GLOBALS['rehostfailed'][] = $url;
+		return false;
+	}
+	$ctx = stream_context_create(array(
+		'http' => array('timeout' => REHOST_TIMEOUT, 'follow_location' => 1, 'max_redirects' => 5)
+	));
+	// The http timeout covers the reads; the connect wait is default_socket_timeout.
+	$old = ini_set('default_socket_timeout', (string) REHOST_TIMEOUT);
+	$res = @copy($url, $dest, $ctx);
+	if ($old !== false) {
+		ini_set('default_socket_timeout', $old);
+	}
+	if ($res === false) {
+		@unlink($dest);
+		$deadhosts[$host] = true;
+		$GLOBALS['rehostfailed'][] = $url;
+	}
+	return $res;
+}
+
 //copies file at URL
 function rehostfile($url, $keydir, $sec="public", $prependToFilename="") {
 	if (substr($url,0,4)!=='http') {return false;}
@@ -137,7 +170,7 @@ function rehostfile($url, $keydir, $sec="public", $prependToFilename="") {
 	$parseurl = parse_url($url);
 	$fn =  Sanitize::sanitizeFilenameAndCheckBlacklist($prependToFilename.basename($parseurl['path']));
 	if (getfilehandlertype('filehandlertypecfiles') == 's3') {
-		$copyres = copy($url, $tmpdir.'/'.$fn);
+		$copyres = rehostcopy($url, $tmpdir.'/'.$fn);
         if ($copyres === false) {
             return false;
         }
@@ -168,7 +201,7 @@ function rehostfile($url, $keydir, $sec="public", $prependToFilename="") {
 		if (!is_dir($dir)) {
 			mkdir_recursive($dir);
 		}
-		$copyres = copy($url, $dir.'/'.$fn);
+		$copyres = rehostcopy($url, $dir.'/'.$fn);
         if ($copyres === false) {
             return false;
         }

@@ -172,6 +172,11 @@ if ($action === 'course') {
         error_log('nximport course: ' . $e->getMessage());
         nx_fail(500, 'The import failed; nothing was added.');
     }
+    if (!empty($GLOBALS['rehostfailed'])) {
+        // Images and files whose source didn't answer: the items came in without them.
+        $res['Images or files not copied'] = count($GLOBALS['rehostfailed']);
+        error_log('nximport course: not copied: ' . implode(' ', array_slice($GLOBALS['rehostfailed'], 0, 50)));
+    }
     echo json_encode(['counts' => $res]);
     exit;
 }
@@ -476,5 +481,9 @@ try {
     }
     error_log('nximport library: ' . $e->getMessage());
     nx_fail(500, 'The import failed; nothing was added.');
+}
+if (!empty($GLOBALS['rehostfailed'])) {
+    $counts['Images not copied'] = count($GLOBALS['rehostfailed']);
+    error_log('nximport library: not copied: ' . implode(' ', array_slice($GLOBALS['rehostfailed'], 0, 50)));
 }
 echo json_encode(['counts' => $counts, 'libraries' => array_values($libmap)]);
