@@ -87,6 +87,12 @@ $_SESSION['userprefs'] = ['graphdisp' => 1, 'drawentry' => 1, 'useeqed' => 1, 'u
 // the editor's preview showed a plain text box with a Preview button, which no student sees.
 $GLOBALS['useeqnhelper'] = 2;
 $useeqnhelper = 2;
+// The assessment version the player runs (assess2/AssessInfo.php sets it from the course; nx courses
+// are all version 2). Libraries pick their script loading by it: without it JSXG.php, jsxgraph.php,
+// geogebra.php and plot3d.php emit their old-player loader, which appends the library's <script>
+// asynchronously; the board code queued on initstack then ran before JXG existed, so every JSXG
+// board was blank in Try and in the editor preview (the player, through AssessInfo, was fine).
+$GLOBALS['assessUIver'] = 2;
 
 $qn = 27;
 $seed = isset($_POST['seed']) ? intval($_POST['seed']) : rand(0, 10000);
