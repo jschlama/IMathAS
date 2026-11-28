@@ -16,8 +16,8 @@
  *   removeExpression, removeExpressions, getExpressions,
  *   observe('change'|..) / observeEvent('change'), unobserve*, setMathBounds,
  *   updateSettings (lockViewport only), resize, destroy;
- *   expression fields: id, latex, color, hidden, secret, lineStyle/style,
- *   lineWidth; options: expressions (the student's expression list),
+ *   expression fields: id, latex, color, hidden, secret, readonly (the Kalc's
+ *   fixed row), lineStyle/style, lineWidth; options: expressions (the student's expression list),
  *   lockViewport.
  * Not yet (they warn once and do nothing): HelperExpression, sliders
  * (sliderBounds), tables, notes, folders, images, FourFunctionCalculator.
@@ -26,7 +26,7 @@
   'use strict';
   if (window.NXKalc) return;
 
-  var KALC_VERSION = '102';
+  var KALC_VERSION = '103';
 
   // Where the Kalc lives: this file's own server. nx's question pages load
   // engine scripts by full address and set window.staticroot to the engine.
@@ -217,6 +217,8 @@
       if (def.lineWidth != null) msg.weight = Number(def.lineWidth);
       if (def.hidden != null) msg.visible = !toBool(def.hidden);
       if (def.secret != null) msg.ghost = toBool(def.secret);
+      // Desmos's readonly row: the Kalc's fixed row (shown, drawn, never changed)
+      if (def.readonly != null) msg.fixed = toBool(def.readonly);
       post(msg);
     }
 
@@ -367,7 +369,7 @@
     (cfg.rows || []).forEach(function (r) {
       var m = { type: 'kovalna-add', tag: r.tag };
       if (r.latex != null) m.latex = tidyLatex(r.latex); else m.eq = String(r.eq);
-      ['ghost', 'visible', 'color', 'style'].forEach(function (k) { if (r[k] != null) m[k] = r[k]; });
+      ['ghost', 'visible', 'color', 'style', 'fixed'].forEach(function (k) { if (r[k] != null) m[k] = r[k]; });
       calc._post(m);
     });
 

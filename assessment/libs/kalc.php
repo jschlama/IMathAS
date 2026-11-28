@@ -29,6 +29,8 @@
 //   color   blue red green purple gold black orange pink teal gray, or #rrggbb
 //   style   solid dashed dotted
 //   latex   true when the expression is LaTeX rather than Kalc syntax
+//   editable true: the student may hide, retype, delete or drag this row. By
+//           default an author row is FIXED — listed and drawn, never changed.
 //
 // kalc_state(g, $stuanswers, $thisq, part) — the graph remembers itself.
 //   A question page keeps only its answers, so the student's rows live in an
@@ -92,6 +94,10 @@ function kalc_add($g, $expr, $opts = array()) {
     $row = array('tag' => 'kq:' . count($g['rows']));
     if (isset($opts['latex']) && _kalc_bool($opts['latex'])) { $row['latex'] = $expr; } else { $row['eq'] = $expr; }
     if (isset($opts['hidden'])) { $row['ghost'] = _kalc_bool($opts['hidden']); }
+    // A row the question gives is fixed: listed and drawn, never hidden, retyped,
+    // deleted or dragged by the student (it would come back on the next render
+    // anyway). "editable"=>true hands it to the student.
+    $row['fixed'] = !(isset($opts['editable']) && _kalc_bool($opts['editable']));
     if (isset($opts['show'])) { $row['visible'] = _kalc_bool($opts['show']); }
     if (isset($opts['color'])) {
         $c = strtolower(trim((string) $opts['color']));
