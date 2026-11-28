@@ -26,7 +26,7 @@
   'use strict';
   if (window.NXKalc) return;
 
-  var KALC_VERSION = '101';
+  var KALC_VERSION = '102';
 
   // Where the Kalc lives: this file's own server. nx's question pages load
   // engine scripts by full address and set window.staticroot to the engine.
@@ -75,10 +75,18 @@
     var id = 'nxk' + (++seq);
     var studentList = toBool(options.expressions);
     var frame = document.createElement('iframe');
-    var q = ['v=' + KALC_VERSION, 'embedded=1'];
+    // q= scopes everything the Kalc keeps in the browser (its variables, its
+    // history) to this one calculator, and exam=1 keeps it in sessionStorage:
+    // a question's "a = 1" must not reach the next question, or the next
+    // student on a shared machine.
+    var scope = 'nx' + Date.now().toString(36) + Math.floor(Math.random() * 1e9).toString(36);
+    var q = ['v=' + KALC_VERSION, 'embedded=1', 'q=' + scope, 'exam=1'];
     // No expression list: the display slot — a clean graph that keeps the
-    // trace and the zoom buttons. With one: the whole calculator.
+    // trace and the zoom buttons. With one: the Kalc's question mode — the
+    // expression input and the student's rows over the graph, where an
+    // expression in x graphs without "y =", as in Desmos.
     if (!studentList) q.push('display=1', 'minimal=1', 'keepTrace=1', 'showControls=1');
+    else q.push('question=1');
     frame.src = ROOT + '/kalc/index.html?' + q.join('&');
     frame.title = 'Graphing calculator';
     frame.setAttribute('allow', 'fullscreen');
@@ -87,13 +95,12 @@
     // Keep the author's height, but never wider than the column.
     elt.style.maxWidth = '100%';
     if (!elt.style.height && elt.clientHeight < 50) elt.style.height = '400px';
-    // With the expression list the Kalc is the whole calculator, whose
-    // toolbar and input take ~170px above the graph: grow the box by that
-    // much so the author's graph area stays the size they set. (A compact
-    // question layout in the Kalc itself is Phase 2.)
+    // With the expression list, the Kalc's input and the student's row sit
+    // above the graph (~90px): grow the box by that much so the author's
+    // graph area stays the size they set.
     if (studentList) {
       var h = elt.getBoundingClientRect().height || 400;
-      elt.style.height = Math.round(h + 170) + 'px';
+      elt.style.height = Math.round(h + 90) + 'px';
     }
     elt.innerHTML = '';
     elt.appendChild(frame);
@@ -132,9 +139,23 @@
       declared.push({ id: did, empty: empty, latex: latex });
     }
     function undeclare(did) { declared = declared.filter(function (d) { return d.id !== String(did); }); }
+    // The Kalc rewrites what it is given (\cdot for a product; "y=" before a
+    // bare expression in question mode), and a question copies getExpressions
+    // into its answer box. So an author's row reads back as the author set it
+    // until the student edits it in the Kalc; an edited row, or a student's
+    // own, reads back as the Kalc has it, less a leading "y=" the author's
+    // row did not have.
+    var firstSeen = {}; // tag -> the Kalc's latex when first reported
     function shape(e, did) {
       var latex = e.latex || e.expr || '';
-      if (e.tag == null) latex = latex.replace(/^\s*y\s*=\s*/, '');
+      var d = null;
+      for (var i = 0; i < declared.length; i++) if (declared[i].id === did) { d = declared[i]; break; }
+      if (e.tag != null) {
+        if (!(e.tag in firstSeen)) firstSeen[e.tag] = latex;
+        if (d && !d.empty && latex === firstSeen[e.tag]) latex = d.latex;
+      }
+      var hadY = d && /^\s*y\s*=/.test(d.latex || '');
+      if (!hadY && latex !== (d && d.latex)) latex = latex.replace(/^\s*y\s*=\s*/, '');
       return { id: did, type: 'expression', latex: latex, color: e.color || undefined, hidden: e.visible === false, secret: !!e.ghost };
     }
     function buildMirror(list) {
@@ -187,6 +208,7 @@
       declare(def);
       if (def.sliderBounds) warnOnce('slider', 'sliders (sliderBounds) are not supported yet; ' + (def.latex || '') + ' is drawn as a plain expression');
       var msg = { type: 'kovalna-add', tag: tagOf(def) };
+      delete firstSeen[msg.tag]; // the author set it again: what the Kalc reports next is the author's
       if (def.latex != null && String(def.latex).trim() !== '') msg.latex = tidyLatex(def.latex);
       else { post({ type: 'kovalna-remove', tag: msg.tag }); return; }
       if (def.color) msg.color = String(def.color);
@@ -211,6 +233,7 @@
     this.setState = function (state) {
       lastState = state || null;
       declared = [];
+      firstSeen = {};
       post({ type: 'kovalna-clear' });
       var g = (state && state.graph) || {};
       if (g.viewport) setWindow(g.viewport);
