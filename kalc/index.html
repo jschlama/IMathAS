@@ -2755,7 +2755,11 @@ const ExprEngine = {
     // restricted constant (r = 2 {0 <= theta <= pi}) is polar too — an arc.
     const polarCurve = this.splitCurveDomain(raw.replace(/\u03B8/g, 'theta'), 'theta');
     const polarMatch = polarCurve.body.match(/^r\s*=\s*(.+)$/i);
-    if (polarMatch && (/theta\b/i.test(polarMatch[1]) || polarCurve.domain)) {
+    // r = 4 is the circle of radius 4 on a polar grid (Desmos's polar mode, a
+    // question's polar graph); with the grid off it stays the variable r.
+    const polarConst = polarMatch && typeof Graph !== 'undefined' && Graph._polarGrid
+      && /^([\d.\s+\-*/()]+|-?pi)$/i.test(polarMatch[1].trim());
+    if (polarMatch && (polarConst || /theta\b/i.test(polarMatch[1]) || polarCurve.domain)) {
       if (polarCurve.error) throw new Error(polarCurve.error);
       return this.handlePolar(polarMatch[1], raw, polarCurve.domain);
     }
@@ -5255,6 +5259,14 @@ function buildExpressionBar() {
     s = s.replace(/\\left\\lfloor|\\lfloor/g, 'floor(').replace(/\\right\\rfloor|\\rfloor/g, ')');
     s = s.replace(/\\left\\lceil|\\lceil/g, 'ceil(').replace(/\\right\\rceil|\\rceil/g, ')');
 
+    // A trig function written without parentheses takes the term after it, as
+    // Desmos reads it: \sin\theta → \sin(\theta), \cos2\theta → \cos(2\theta),
+    // \sin x → \sin(x). One term: an optional number and one letter or Greek
+    // letter. Left alone: a brace or parenthesis (handled below), a power
+    // (\sin^2), and anything else after a backslash (\sin\frac…). Without
+    // this, "\sin\theta" became the unknown name "sintheta" and the curve
+    // silently drew nothing.
+    s = s.replace(/\\(sin|cos|tan|sec|csc|cot)(?!\s*(?:\{|\(|\^|\\left))\s*((?:\d+(?:\.\d+)?)?\s*(?:\\(?:theta|pi|phi|alpha|beta)(?![a-zA-Z])|[a-zA-Z](?![a-zA-Z])))/g, '\\$1($2)');
     // Trig/math functions with braced arguments: \sin{x} → sin(x)
     s = s.replace(/\\(sin|cos|tan|sec|csc|cot|arcsin|arccos|arctan|ln|log|exp|min|max)\{([^{}]*)\}/g, '$1($2)');
 

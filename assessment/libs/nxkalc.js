@@ -29,7 +29,7 @@
   'use strict';
   if (window.NXKalc) return;
 
-  var KALC_VERSION = '104';
+  var KALC_VERSION = '105';
 
   // Where the Kalc lives: this file's own server. nx's question pages load
   // engine scripts by full address and set window.staticroot to the engine.
@@ -289,7 +289,9 @@
       post({ type: 'kovalna-clear' });
       var g = (state && state.graph) || {};
       if (g.viewport) setWindow(g.viewport);
-      if (toBool(g.polarMode)) warnOnce('polar', 'polar mode is not supported yet');
+      // Desmos's polar mode is the Kalc's polar grid (its r = f(theta) curves
+      // draw either way). After the clear, which turns the grid off.
+      if (toBool(g.polarMode)) post({ type: 'kovalna-window', polar: true });
       var list = (state && state.expressions && state.expressions.list) || [];
       for (var i = 0; i < list.length; i++) addDef(list[i]);
     };
