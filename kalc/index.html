@@ -2698,6 +2698,27 @@ const ExprEngine = {
     // 0) Point plotting: (x, y) or multiple (x1,y1) (x2,y2) ...
     // Single point: (3, 5) or (a, a^2) with slider params
     // Multiple points: (1,2) (3,4) (5,6) or (1,2);(3,4);(5,6)
+    // One point whose coordinates hold parentheses of their own — (1.7, f(1.7)),
+    // (2, sin(pi/6)) — which the plain pattern below cannot take: split at the
+    // one top-level comma of a single balanced (…).
+    {
+      const t = raw.trim();
+      if (t[0] === '(' && t[t.length - 1] === ')') {
+        let depth = 0, comma = -1, closesAt = -1;
+        for (let i = 0; i < t.length; i++) {
+          const c = t[i];
+          if (c === '(' || c === '[') depth++;
+          else if (c === ')' || c === ']') { depth--; if (depth === 0) { closesAt = i; break; } }
+          else if (c === ',' && depth === 1) { if (comma >= 0) { comma = -2; break; } comma = i; }
+        }
+        if (closesAt === t.length - 1 && comma > 0) {
+          const xExpr = t.slice(1, comma).trim(), yExpr = t.slice(comma + 1, -1).trim();
+          if (xExpr && yExpr && /[()]/.test(xExpr + yExpr)) {
+            return this.handlePointTuples([{ xExpr, yExpr }], raw);
+          }
+        }
+      }
+    }
     const tuplePattern = /^\s*\(\s*([^()]+?)\s*,\s*([^()]+?)\s*\)(?:\s*[;\s]\s*\(\s*([^()]+?)\s*,\s*([^()]+?)\s*\))*\s*$/;
     if (tuplePattern.test(raw) && !/^[a-zA-Z]+\s*\(/.test(raw)) {
       // Extract all (x,y) pairs
@@ -3062,6 +3083,9 @@ const ExprEngine = {
         } else if (vals.every(v => typeof v === 'number')) {
           if (vals.every(v => isFinite(v))) {
             if (vals.every(v => Math.abs(v - vals[0]) < 1e-9)) return { type: 'value', val: vals[0], label: null };
+            // A question's graph (?question=1) works like Desmos: an
+            // expression in x is a curve, as if "y =" were typed before it.
+            if (window._kalcBareGraphs) return this.evaluate('y=' + raw, latex ? 'y=' + latex : latex);
             throw { msg: 'That expression depends on x, so it has no single value.', hint: `Graph it: y = ${raw}` };
           }
           if (vals.every(v => !isFinite(v))) throw this._noFiniteValue();
@@ -5187,18 +5211,18 @@ function buildExpressionBar() {
     s = s.replace(/\\left\\lceil|\\lceil/g, 'ceil(').replace(/\\right\\rceil|\\rceil/g, ')');
 
     // Trig/math functions with braced arguments: \sin{x} → sin(x)
-    s = s.replace(/\\(sin|cos|tan|arcsin|arccos|arctan|ln|log|exp|min|max)\{([^{}]*)\}/g, '$1($2)');
+    s = s.replace(/\\(sin|cos|tan|sec|csc|cot|arcsin|arccos|arctan|ln|log|exp|min|max)\{([^{}]*)\}/g, '$1($2)');
 
     // Trig/math functions with parenthesized args: \sin(x) → sin(x)
-    s = s.replace(/\\(sin|cos|tan|arcsin|arccos|arctan|ln|log|exp|min|max)\s*\(/g, '$1(');
+    s = s.replace(/\\(sin|cos|tan|sec|csc|cot|arcsin|arccos|arctan|ln|log|exp|min|max)\s*\(/g, '$1(');
 
     // Trig/math functions with bare arguments (no parens/braces):
     // \sin followed by content until next operator or end → sin(content)
     // e.g. \sin\frac{1}{2}\pi → after frac conversion: \sin((1)/(2))pi
     // We handle this AFTER frac/sqrt conversion but BEFORE stripping remaining \commands
-    s = s.replace(/\\(sin|cos|tan|arcsin|arccos|arctan|ln|log|exp|min|max)\s+/g, '$1 ');
+    s = s.replace(/\\(sin|cos|tan|sec|csc|cot|arcsin|arccos|arctan|ln|log|exp|min|max)\s+/g, '$1 ');
     // Now strip the backslash from any remaining \sin etc (no argument attached)
-    s = s.replace(/\\(sin|cos|tan|arcsin|arccos|arctan|ln|log|exp|min|max)/g, '$1');
+    s = s.replace(/\\(sin|cos|tan|sec|csc|cot|arcsin|arccos|arctan|ln|log|exp|min|max)/g, '$1');
 
     // operatorname
     s = s.replace(/\\operatorname\{([^{}]+)\}/g, '$1');
@@ -7953,11 +7977,35 @@ const Graph = {
   // signed) digit is SCIENTIFIC NOTATION, never 2·e: `1e+21` is what M.fmt
   // prints for a large result and what a student types for Avogadro's number,
   // and splitting it read `1e+21` as e + 21 = 23.7.
+  // sec / csc / cot are not Math functions: each becomes its reciprocal,
+  // `sec(u)` → `(1/cos(u))`, with the whole argument found by balanced
+  // parentheses (so `x^sec(x)` and `a/sec(x)` keep their meaning). Runs before
+  // the sin/cos/tan rewrite, so DEG mode and implicit multiplication treat
+  // the result like any cos(...) the student typed.
+  _reciprocalTrig(src) {
+    const RECIP = { sec: 'cos', csc: 'sin', cot: 'tan' };
+    let e = src, guard = 0;
+    for (;;) {
+      const m = /(?<![A-Za-z0-9_.])(sec|csc|cot)\s*\(/.exec(e);
+      if (!m || ++guard > 200) return e;
+      const open = m.index + m[0].length - 1;
+      let depth = 0, close = -1;
+      for (let i = open; i < e.length; i++) {
+        if (e[i] === '(') depth++;
+        else if (e[i] === ')') { depth--; if (depth === 0) { close = i; break; } }
+      }
+      if (close < 0) return e; // unbalanced: leave it for the parser to report
+      e = e.slice(0, m.index) + '(1/' + RECIP[m[1]] + e.slice(open, close + 1) + ')' + e.slice(close + 1);
+    }
+  },
+
   _implicitMul(src) {
     let e = src.replace(/(\d)([A-Za-z])/g, (m, d, l, off, str) =>
       ((l === 'e' || l === 'E') && /^[+-]?\d/.test(str.slice(off + 2))) ? m : d + '*' + l);
     e = e.replace(/(\))(\()/g, '$1*$2');
     e = e.replace(/(\d)(\()/g, '$1*$2');
+    // pi is a number, never a function: pi(x+1) is pi·(x+1)
+    e = e.replace(/(?<![A-Za-z0-9_.])pi\s*\(/g, 'pi*(');
     e = e.replace(/(\))(\d)/g, '$1*$2');
     e = e.replace(/(\))([A-Za-z])/g, '$1*$2');
     return e;
@@ -8012,6 +8060,10 @@ const Graph = {
 
   _compileExpr(exprStr, extraVars) {
     let e = exprStr;
+    // Two minus signs in a row are a plus ("y - -5", the way a point-slope
+    // form with a negative coordinate is written); JavaScript would read "--"
+    // as a decrement.
+    e = e.replace(/-(\s*)-/g, '+');
     // Substitute named function references: f(expr) → (body with x replaced).
     // Also handle derivative calls f'(expr) → numeric derivative of the named
     // function at that point (must run before the value substitution; the
@@ -8058,6 +8110,7 @@ const Graph = {
     //   2. `log` becomes `Math.log10`, and the digit-before-paren rule would
     //      then split its trailing digits from the call: `Math.log10*(x)`.
     //      Running first leaves the generated name untouched.
+    e = this._reciprocalTrig(e);
     e = this._implicitMul(e);
     if (typeof angleMode !== 'undefined' && angleMode === 'deg') {
       e = e.replace(/\bsin\b/g, '_sind'); e = e.replace(/\bcos\b/g, '_cosd'); e = e.replace(/\btan\b/g, '_tand');
@@ -8466,10 +8519,15 @@ const Graph = {
   compileImplicit(exprStr) {
     // exprStr is like "x^2 + y^2 - 25" (already rearranged to = 0)
     let e = exprStr;
+    // Two minus signs in a row are a plus ("y - -5", the way a point-slope
+    // form with a negative coordinate is written); JavaScript would read "--"
+    // as a decrement.
+    e = e.replace(/-(\s*)-/g, '+');
     e = e.replace(/\^/g, '**');
     e = Graph._fixUnaryPow(e);
     // Implicit multiplication first, log before ln, and the unary-sign repair
     // above — see _compileExpr for why; this chain must stay in step with it.
+    e = Graph._reciprocalTrig(e);
     e = Graph._implicitMul(e);
     if (typeof angleMode !== 'undefined' && angleMode === 'deg') {
       e = e.replace(/\bsin\b/g, '_sind'); e = e.replace(/\bcos\b/g, '_cosd'); e = e.replace(/\btan\b/g, '_tand');
@@ -12923,6 +12981,37 @@ setTimeout(() => DataLists.updateAllUI(), 50);
         document.head.appendChild(dStyle);
       }
 
+      // ─── Question mode: ?question=1 ───
+      // A graph a question's student types into (imathas-nx, in place of a
+      // Desmos calculator): the expression input and the student's rows over
+      // the graph, filling the frame, and nothing else. No menus, no results
+      // feed, and no graph header — its "Clear graph" would also take the
+      // question's own curves (the hidden targets the student is matching).
+      // An expression in x graphs as a curve without "y =", as in Desmos
+      // (ExprEngine reads window._kalcBareGraphs).
+      if (params.get('question') === '1' && params.get('display') !== '1') {
+        app.classList.add('question-mode');
+        window._kalcBareGraphs = true;
+        const gpq = document.getElementById('graphPanel');
+        if (gpq) gpq.classList.add('visible');
+        const qStyle = document.createElement('style');
+        qStyle.textContent = `
+          .app.question-mode { height: 100%; display: flex; flex-direction: column; padding: 4px; max-width: none; gap: 4px; }
+          .app.question-mode #dropdownsMount,
+          .app.question-mode .header,
+          .app.question-mode #resultsFeedMount,
+          .app.question-mode .results-feed,
+          .app.question-mode #exprResult:empty,
+          .app.question-mode .graph-panel .graph-header { display: none !important; }
+          .app.question-mode #exprBarMount { flex: none; }
+          .app.question-mode #graphMount { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+          .app.question-mode .graph-panel { flex: 1; display: flex; flex-direction: column; min-height: 0; margin: 0; }
+          .app.question-mode .graph-panel .graph-body { flex: 1; display: flex; min-height: 0; }
+          .app.question-mode .graph-canvas-wrap { flex: 1; height: auto; min-height: 160px; position: relative; }
+        `;
+        document.head.appendChild(qStyle);
+      }
+
       // Grab-to-scroll: drag empty areas to scroll the page
       let grabbing = false, startY = 0, startScroll = 0;
       const skip = new Set(['INPUT','SELECT','TEXTAREA','BUTTON','CANVAS','A','H1','SVG','PATH','SPAN']);
@@ -14493,7 +14582,13 @@ setTimeout(() => DataLists.updateAllUI(), 50);
   // Poll for changes to watched expressions (runs on Graph render)
   let _lastWatchState = {};
   let _lastAllState = null;
+  // While a parent's message is being handled, the graph renders in steps (an
+  // add draws the row, THEN tags it); a watcher reported from inside would see
+  // a half-made row — untagged, so a parent takes the author's own row for
+  // the student's. The dispatcher below reports once, after the handler.
+  let _inHandler = false;
   function checkWatchers() {
+    if (_inHandler) return;
     if (!Object.keys(_watchers).length) return;
     if (_watchers['*'] && window.parent) {
       const all = listExpressions();
@@ -14537,7 +14632,10 @@ setTimeout(() => DataLists.updateAllUI(), 50);
   window.addEventListener('message', function(e) {
     if (!e.data || typeof e.data !== 'object') return;
     const handler = handlers[e.data.type];
-    if (handler) handler(e.data);
+    if (!handler) return;
+    _inHandler = true;
+    try { handler(e.data); } finally { _inHandler = false; }
+    try { checkWatchers(); } catch (err) {}
   });
 
   // ─── Tell an embedding page the API is listening ───
