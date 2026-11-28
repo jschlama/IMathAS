@@ -22,14 +22,18 @@
  * Tables: columns become the Kalc's data lists L1..L6 under their own names
  * (x_1 -> L1), the first two drawn as fixed points; a student regresses as in
  * Desmos (y_1 ~ m x_1 + b).
+ * FourFunctionCalculator / ScientificCalculator: the Kalc's calculator mode.
+ * Clicks on the graph reach the question's element as click events whose
+ * position pixelsToMath maps to the graph point (questions that ask "click").
+ * setState takes a state object or its JSON text.
  * Not yet (they warn once and do nothing): HelperExpression, sliders
- * (sliderBounds), notes, folders, images, FourFunctionCalculator.
+ * (sliderBounds), notes, folders, images.
  */
 (function () {
   'use strict';
   if (window.NXKalc) return;
 
-  var KALC_VERSION = '105';
+  var KALC_VERSION = '106';
 
   // Where the Kalc lives: this file's own server. nx's question pages load
   // engine scripts by full address and set window.staticroot to the engine.
@@ -88,7 +92,8 @@
     // trace and the zoom buttons. With one: the Kalc's question mode — the
     // expression input and the student's rows over the graph, where an
     // expression in x graphs without "y =", as in Desmos.
-    if (!studentList) q.push('display=1', 'minimal=1', 'keepTrace=1', 'showControls=1');
+    if (kind === 'calc') q.push('calc=1');
+    else if (!studentList) q.push('display=1', 'minimal=1', 'keepTrace=1', 'showControls=1');
     else q.push('question=1');
     frame.src = ROOT + '/kalc/index.html?' + q.join('&');
     frame.title = 'Graphing calculator';
@@ -101,7 +106,7 @@
     // With the expression list, the Kalc's input and the student's row sit
     // above the graph (~90px): grow the box by that much so the author's
     // graph area stays the size they set.
-    if (studentList) {
+    if (studentList && kind !== 'calc') {
       var h = elt.getBoundingClientRect().height || 400;
       elt.style.height = Math.round(h + 90) + 'px';
     }
@@ -190,10 +195,28 @@
       return out;
     }
     var watchType = id + ':all';
+    var clickType = id + ':click';
+    // Graph coordinates <-> pixels of the question's element (Desmos's
+    // pixelsToMath / mathToPixels): the window this file set, over the box.
+    function curBounds() { return bounds || { xmin: -10, xmax: 10, ymin: -10, ymax: 10 }; }
+    function pixelsToMath(p) {
+      var b = curBounds(), w = elt.clientWidth || 1, h = elt.clientHeight || 1;
+      return { x: b.xmin + (Number(p.x) / w) * (b.xmax - b.xmin), y: b.ymax - (Number(p.y) / h) * (b.ymax - b.ymin) };
+    }
+    function mathToPixels(m) {
+      var b = curBounds(), w = elt.clientWidth || 1, h = elt.clientHeight || 1;
+      return { x: (Number(m.x) - b.xmin) / (b.xmax - b.xmin) * w, y: (b.ymax - Number(m.y)) / (b.ymax - b.ymin) * h };
+    }
     function onMessage(ev) {
       if (ev.source !== frame.contentWindow || !ev.data || typeof ev.data !== 'object') return;
       if (ev.data.type === 'kovalna-ready') {
         flush();
+      } else if (ev.data.type === clickType && isFinite(ev.data.x) && isFinite(ev.data.y)) {
+        var px = mathToPixels({ x: Number(ev.data.x), y: Number(ev.data.y) });
+        var r = elt.getBoundingClientRect();
+        try {
+          elt.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: r.left + px.x, clientY: r.top + px.y }));
+        } catch (e) {}
       } else if (ev.data.type === watchType && Array.isArray(ev.data.expressions)) {
         lastList = ev.data.expressions;
         var cbs = listeners.change.slice();
@@ -205,7 +228,10 @@
     frame.addEventListener('load', function () { setTimeout(flush, 50); });
 
     // Every expression change comes back as the full list (watch '*').
-    post({ type: 'kovalna-watch', tag: '*', replyTo: watchType });
+    if (kind !== 'calc') {
+      post({ type: 'kovalna-watch', tag: '*', replyTo: watchType });
+      post({ type: 'kovalna-clicks', on: true, replyTo: clickType });
+    }
     if (options.lockViewport) post({ type: 'kovalna-freeze', pan: true, zoom: true });
 
     function tagOf(def) { return 'd:' + String(def.id != null ? def.id : 'auto' + (++seq)); }
@@ -281,6 +307,9 @@
     }
 
     this.setState = function (state) {
+      if (typeof state === 'string') {
+        try { state = JSON.parse(state); } catch (e) { warnOnce('state-json', 'setState: the state text is not JSON'); return; }
+      }
       lastState = state || null;
       declared = [];
       firstSeen = {};
@@ -311,13 +340,17 @@
     this.removeExpressions = function (defs) { (defs || []).forEach(self.removeExpression); };
     this.getExpressions = function () { return buildMirror(lastList); };
     this.setMathBounds = function (b) { setWindow(b); };
+    this.pixelsToMath = pixelsToMath;
+    this.mathToPixels = mathToPixels;
     this.updateSettings = function (s) {
       s = s || {};
       if ('lockViewport' in s) {
         lockViewport = toBool(s.lockViewport);
         post({ type: lockViewport ? 'kovalna-freeze' : 'kovalna-thaw', pan: true, zoom: true });
       }
-      Object.keys(s).forEach(function (k) { if (k !== 'lockViewport') warnOnce('setting:' + k, 'setting "' + k + '" is ignored'); });
+      // Display-only settings the Kalc has no use for pass without a word.
+      var quiet = { brailleMode: 1, projectorMode: 1, fontSize: 1, invertedColors: 1, language: 1 };
+      Object.keys(s).forEach(function (k) { if (k !== 'lockViewport' && !quiet[k]) warnOnce('setting:' + k, 'setting "' + k + '" is ignored'); });
     };
     // Desmos: observe('expressionAnalysis'|'graphpaperBounds'|..., cb) and
     // observeEvent('change', cb). Every one of them is "something changed".
@@ -511,8 +544,10 @@
 
   var api = {
     GraphingCalculator: function (elt, options) { return new Calculator(elt, options, 'graphing'); },
-    FourFunctionCalculator: unsupported('FourFunctionCalculator'),
-    ScientificCalculator: unsupported('ScientificCalculator'),
+    // A side calculator: the Kalc's calculator mode (input over the answers).
+    // The Kalc is scientific, so both get it; its settings are ignored.
+    FourFunctionCalculator: function (elt, options) { return new Calculator(elt, options, 'calc'); },
+    ScientificCalculator: function (elt, options) { return new Calculator(elt, options, 'calc'); },
     HelperExpression: unsupported('HelperExpression'),
     Styles: { SOLID: 'SOLID', DASHED: 'DASHED', DOTTED: 'DOTTED', POINT: 'POINT', OPEN: 'OPEN', CROSS: 'CROSS' },
     Colors: DESMOS_COLORS,

@@ -1,6 +1,6 @@
 Kovalna Kalc, copied by tools/sync-kalc.sh
-source: jschlama/KOVALNA-2.0 @ 682e05e8e83c734b06b930ebe38260a97e45ad60
-KALC_EMBED_VERSION: 105
+source: jschlama/KOVALNA-2.0 @ 31cc7f612fad558154ee28057524d31c0c524bb9
+KALC_EMBED_VERSION: 106
 
 Licences: the Kalc is KOVALNA's own. MathLive (lib/mathlive) is MIT; DM Sans and JetBrains Mono
 (lib/font, and the KaTeX fonts in lib/mathlive/fonts) are under the SIL Open Font License 1.1.
