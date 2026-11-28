@@ -2939,6 +2939,7 @@ const ExprEngine = {
 
     // 0b) Tilde regression: Y ~ model(X) — e.g. L2 ~ a + b*L1
     if (raw.includes('~')) {
+      raw = this.listAliases(raw);
       return this.handleTildeRegression(raw);
     }
 
@@ -3551,7 +3552,11 @@ const ExprEngine = {
     if (['PI', 'E', 'ANS'].includes(upper)) {
       throw { msg: `"${upper}" is a reserved name.`, hint: 'Use a different name like x, count, L1' };
     }
-    const trimmed = valueStr.trim();
+    let trimmed = valueStr.trim();
+    // {1, 2, 3} — a TI-style list of plain numbers — is the list [1, 2, 3]. It
+    // used to go through the expression evaluator, which kept the middle and
+    // dropped the first and last values.
+    if (/^\{\s*-?[\d.]+(\s*,\s*-?[\d.]+)*\s*\}$/.test(trimmed)) trimmed = '[' + trimmed.slice(1, -1) + ']';
 
     // Try to evaluate as a single numeric expression first
     // (handles: x = 3, y = 2+3, z = sqrt(16), r = mean(L1))
@@ -3611,11 +3616,27 @@ const ExprEngine = {
     };
   },
 
+  // Names an embedding page gave its data lists (kovalna-listnames: a question's
+  // table columns x_1 and y_1 for L1 and L2), read as those lists. A name may
+  // follow a coefficient letter directly, as in Desmos ("m x_1" -> m*L1).
+  listAliases(raw) {
+    const names = window._kalcListAliases;
+    if (!names) return raw;
+    let s = raw;
+    Object.keys(names).sort((a, b) => b.length - a.length).forEach((alias) => {
+      const re = new RegExp('([A-Za-z0-9)]?)' + alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![A-Za-z0-9_])', 'g');
+      s = s.replace(re, (m, before) => (before ? before + '*' : '') + names[alias]);
+    });
+    return s;
+  },
+
   // ─── Handle tilde regression: Y ~ model(X) ───
   handleTildeRegression(raw) {
     const tildeParts = raw.split('~').map(s => s.trim());
     if (tildeParts.length !== 2) throw { msg: 'Tilde syntax requires exactly one ~', hint: 'Example: L2 ~ a + b*L1' };
-    const yToken = tildeParts[0], model = tildeParts[1];
+    const yToken = tildeParts[0];
+    // "mL1 + b" is m times L1, as "2L1" would be: the list name gets its *.
+    const model = tildeParts[1].replace(/([A-Za-z0-9)])(L[1-6])(?![0-9])/gi, '$1*$2');
 
     // Resolve Y list
     const ys = this.resolveList(yToken);
@@ -3629,7 +3650,9 @@ const ExprEngine = {
     if (xs.length < 3) throw { msg: 'Need at least 3 data points for regression.', hint: `Found ${xs.length}.` };
 
     // Detect model type from the RHS pattern
-    const m = model.replace(/\s+/g, '');
+    // (L1) is L1: the LaTeX converter writes an exponent's group b^{x_1} as b^(L1).
+    // Not after a letter: ln(L1) is a call and must keep its parentheses.
+    const m = model.replace(/\s+/g, '').replace(/(^|[^A-Za-z])\((L[1-6])\)/gi, '$1$2');
     const xPat = xName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const xRe = new RegExp(xPat, 'gi');
 
@@ -3641,6 +3664,9 @@ const ExprEngine = {
 
     // Exponential: a*b^X
     const isExp = new RegExp('^[a-z]\\*?[a-z]\\^' + xPat + '$', 'i').test(m);
+    // The same curve with base e, as Desmos students write it: a*e^(b*X) or
+    // a*e^(-b*X). Fitted as a*b^X and reported as a*e^(k x), k = ln b.
+    const isExpE = new RegExp('^[a-z]\\*?e\\^\\(?-?[a-z]\\*?' + xPat + '\\)?$', 'i').test(m);
 
     // Logarithmic: a + b*ln(X) or a + b*log(X)
     // (a fresh non-global regex — `xRe` carries /g, so a second .test() on it
@@ -3672,7 +3698,7 @@ const ExprEngine = {
       result = M.quadReg(xs, ys);
     } else if (isPower) {
       result = M.powerReg(xs, ys);
-    } else if (isExp) {
+    } else if (isExp || isExpE) {
       result = M.expReg(xs, ys);
     } else if (isLog) {
       result = M.lnReg(xs, ys);
@@ -3705,6 +3731,11 @@ const ExprEngine = {
       eqn = `\u0177 = ${M.fmt(result.c,4)}x\u00B2 + ${M.fmt(result.b,4)}x + ${M.fmt(result.a,4)}`;
       srcExpr = `${p(result.c)}*x^2 + ${p(result.b)}*x + ${p(result.a)}`;
       label = `${eqn}\nR\u00B2 = ${M.fmt(result.r2,6)}\n${M.fmt(result.r2*100,1)}% of variability explained.`;
+    } else if (type === 'exponential' && isExpE) {
+      const k = Math.log(result.b);
+      eqn = `\u0177 = ${M.fmt(result.a,4)} \u00B7 e^(${M.fmt(k,4)}x)`;
+      srcExpr = `${p(result.a)} * e^(${p(k)}*x)`;
+      label = `${eqn}\nr = ${M.fmt(result.r,6)}, r\u00B2 = ${M.fmt(result.r2,6)}\n${M.fmt(result.r2*100,1)}% of variability explained. ${strength} exponential association.`;
     } else if (type === 'exponential') {
       eqn = `\u0177 = ${M.fmt(result.a,4)} \u00B7 ${M.fmt(result.b,4)}^x`;
       srcExpr = `${p(result.a)} * ${p(result.b)}^x`;
@@ -3725,7 +3756,21 @@ const ExprEngine = {
     label += `\nResiduals: ${result.residuals.slice(0, 8).map((r, i) => `(${xs[i]}, ${M.fmt(r)})`).join('  ')}${result.residuals.length > 8 ? ' \u2026' : ''}`;
 
     // Also show on the interactive graph panel with data points + regression curve
-    if (typeof Graph !== 'undefined' && Graph.panel) {
+    // In a question's graph (?question=1) the question already shows its data
+    // and set its window: a regression adds only its curve — not another copy
+    // of the data and a residual plot every try, and not a refit of the view.
+    const inQuestion = !!window._kalcBareGraphs;
+    if (typeof Graph !== 'undefined' && Graph.panel && inQuestion) {
+      const regColor = Graph.colors[Graph.expressions.length % Graph.colors.length];
+      Graph.expressions.push({
+        id: Graph.nextId++, expr: eqn, rawExpr: '',
+        latex: Graph.exprToLatex(eqn),
+        fn: result.predict, color: regColor, visible: true, lineWidth: 2.5, dash: [],
+        _srcExpr: srcExpr || null
+      });
+      Graph.updateRows();
+      Graph.render();
+    } else if (typeof Graph !== 'undefined' && Graph.panel) {
       // Add scatter points as a special non-function entry
       const scatterId = Graph.nextId++;
       const scatterColor = '#888';
@@ -14542,6 +14587,17 @@ setTimeout(() => DataLists.updateAllUI(), 50);
       _frozen.zoom  = false;
       _frozen.trace = false;
       applyFreeze();
+    },
+
+    // ── Names for data lists: { names: { x_1: 'L1', y_1: 'L2' } } ──
+    // A page that loads a table into L1..L6 (a question's x_1 / y_1 columns)
+    // lets the student use the column names in a regression: y_1 ~ m x_1 + b.
+    'kovalna-listnames': function(msg) {
+      const out = {};
+      Object.entries((msg && msg.names) || {}).forEach(([k, v]) => {
+        if (/^[A-Za-z][A-Za-z0-9_]{0,7}$/.test(k) && /^L[1-6]$/.test(String(v))) out[k] = String(v);
+      });
+      window._kalcListAliases = Object.keys(out).length ? out : null;
     },
 
     // ── List every expression (tagged by the parent or typed by the student) ──

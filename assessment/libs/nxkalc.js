@@ -19,14 +19,17 @@
  *   expression fields: id, latex, color, hidden, secret, readonly (the Kalc's
  *   fixed row), lineStyle/style, lineWidth; options: expressions (the student's expression list),
  *   lockViewport.
+ * Tables: columns become the Kalc's data lists L1..L6 under their own names
+ * (x_1 -> L1), the first two drawn as fixed points; a student regresses as in
+ * Desmos (y_1 ~ m x_1 + b).
  * Not yet (they warn once and do nothing): HelperExpression, sliders
- * (sliderBounds), tables, notes, folders, images, FourFunctionCalculator.
+ * (sliderBounds), notes, folders, images, FourFunctionCalculator.
  */
 (function () {
   'use strict';
   if (window.NXKalc) return;
 
-  var KALC_VERSION = '103';
+  var KALC_VERSION = '104';
 
   // Where the Kalc lives: this file's own server. nx's question pages load
   // engine scripts by full address and set window.staticroot to the engine.
@@ -133,6 +136,11 @@
     function declare(def) {
       var did = String(def.id != null ? def.id : '');
       if (!did) return;
+      if (def.type === 'table') {
+        for (var t = 0; t < declared.length; t++) if (declared[t].id === did) { declared[t].table = def.columns; return; }
+        declared.push({ id: did, empty: false, latex: '', table: def.columns || [] });
+        return;
+      }
       var empty = def.latex == null || String(def.latex).trim() === '';
       var latex = empty ? '' : String(def.latex);
       for (var i = 0; i < declared.length; i++) if (declared[i].id === did) { declared[i].empty = empty; declared[i].latex = latex; return; }
@@ -166,6 +174,7 @@
       });
       var out = [];
       declared.forEach(function (d) {
+        if (d.table) { delete byTag[d.id]; out.push({ id: d.id, type: 'table', columns: d.table }); return; }
         if (byTag[d.id]) { out.push(shape(byTag[d.id], d.id)); delete byTag[d.id]; }
         else if (!d.empty) {
           // set, but the Kalc has not reported it yet (or could not draw it):
@@ -204,6 +213,7 @@
     function addDef(def) {
       if (!def) return;
       var type = def.type || 'expression';
+      if (type === 'table') { addTable(def); return; }
       if (type !== 'expression') { warnOnce('type:' + type, 'expression type "' + type + '" is not supported yet'); return; }
       declare(def);
       if (def.sliderBounds) warnOnce('slider', 'sliders (sliderBounds) are not supported yet; ' + (def.latex || '') + ' is drawn as a plain expression');
@@ -222,6 +232,44 @@
       post(msg);
     }
 
+    // A Desmos table: each column becomes one of the Kalc's data lists (L1..L6,
+    // in the order tables and columns come), and the column's own name (x_1,
+    // and x1 as the Kalc's converter writes it) is given to that list, so a
+    // student's regression reads the way it did in Desmos: y_1 ~ m x_1 + b.
+    // The first two columns are drawn as a fixed points row.
+    var nextList = 1, listNames = {};
+    function addTable(def) {
+      declare(def);
+      var cols = (def.columns || []).slice(0, 7 - nextList);
+      if (cols.length < (def.columns || []).length) warnOnce('lists', 'the Kalc has six data lists; columns past L6 are left out');
+      var nums = cols.map(function (c) {
+        return (c.values || []).map(function (v) { return Number(v); });
+      });
+      cols.forEach(function (c, i) {
+        var L = 'L' + nextList++;
+        var vals = nums[i].filter(function (v) { return isFinite(v); });
+        post({ type: 'kovalna-add', tag: 'd:' + def.id + ':' + L, eq: L + '=[' + vals.join(',') + ']' });
+        var name = String(c.latex || '').trim();
+        if (/^[A-Za-z](_\{?[A-Za-z0-9]+\}?)?$/.test(name)) {
+          listNames[name.replace(/[{}]/g, '')] = L;
+          listNames[name.replace(/[_{}]/g, '')] = L;
+        }
+      });
+      post({ type: 'kovalna-listnames', names: listNames });
+      if (nums.length >= 2) {
+        var pts = [];
+        for (var k = 0; k < Math.min(nums[0].length, nums[1].length); k++) {
+          if (isFinite(nums[0][k]) && isFinite(nums[1][k])) pts.push('(' + nums[0][k] + ',' + nums[1][k] + ')');
+        }
+        if (pts.length) {
+          var m = { type: 'kovalna-add', tag: 'd:' + def.id, eq: pts.join(' '), fixed: true };
+          var col = (cols[1] && cols[1].color) || def.color;
+          if (col) m.color = String(col);
+          post(m);
+        }
+      }
+    }
+
     function setWindow(b) {
       if (!b) return;
       var x = [Number(b.left != null ? b.left : b.xmin), Number(b.right != null ? b.right : b.xmax)];
@@ -236,6 +284,8 @@
       lastState = state || null;
       declared = [];
       firstSeen = {};
+      nextList = 1; listNames = {};
+      post({ type: 'kovalna-listnames', names: {} });
       post({ type: 'kovalna-clear' });
       var g = (state && state.graph) || {};
       if (g.viewport) setWindow(g.viewport);
