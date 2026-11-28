@@ -5222,10 +5222,13 @@ function buildExpressionBar() {
     s = s.replace(/\\colon/g, ':');
 
     // Comparison operators — LaTeX and unicode
-    s = s.replace(/\\ge\b/g, '>=').replace(/\\le\b/g, '<=');
-    s = s.replace(/\\geq\b/g, '>=').replace(/\\leq\b/g, '<=');
-    s = s.replace(/\\gt\b/g, '>').replace(/\\lt\b/g, '<');
-    s = s.replace(/\\ne\b/g, '!=').replace(/\\neq\b/g, '!=');
+    // A command ends where a letter does not follow — not at a word boundary:
+    // in "x\ge0" there is none between the e and the 0, so the inequality
+    // stayed "x\ge0" and drew nothing. Longer names first (\geq before \ge).
+    s = s.replace(/\\geq(?![a-zA-Z])/g, '>=').replace(/\\leq(?![a-zA-Z])/g, '<=');
+    s = s.replace(/\\ge(?![a-zA-Z])/g, '>=').replace(/\\le(?![a-zA-Z])/g, '<=');
+    s = s.replace(/\\gt(?![a-zA-Z])/g, '>').replace(/\\lt(?![a-zA-Z])/g, '<');
+    s = s.replace(/\\neq(?![a-zA-Z])/g, '!=').replace(/\\ne(?![a-zA-Z])/g, '!=');
     s = s.replace(/\u2265/g, '>=').replace(/\u2264/g, '<=');
     s = s.replace(/\u2260/g, '!=').replace(/\u00D7/g, '*');
     // Ellipsis (range lists [1...10]) \u2014 MathLive may serialize typed dots
@@ -13051,6 +13054,30 @@ setTimeout(() => DataLists.updateAllUI(), 50);
         document.head.appendChild(dStyle);
       }
 
+      // ─── Calculator mode: ?calc=1 ───
+      // A question's side calculator (imathas-nx, in place of Desmos's four-
+      // function calculator): the expression input over the results feed, and
+      // nothing else — no graph, no menus. An answer stays in the feed.
+      if (params.get('calc') === '1' && params.get('display') !== '1') {
+        app.classList.add('calc-mode');
+        const cStyle = document.createElement('style');
+        cStyle.textContent = `
+          .app.calc-mode { height: 100%; display: flex; flex-direction: column; padding: 4px; max-width: none; gap: 4px; }
+          .app.calc-mode #dropdownsMount,
+          .app.calc-mode .header,
+          .app.calc-mode #graphMount,
+          .app.calc-mode .graph-panel { display: none !important; }
+          .app.calc-mode #exprBarMount { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+          .app.calc-mode #resultsFeedMount { flex: 1; min-height: 0; overflow-y: auto; }
+          /* The feed's shared five-column grid drifts in a narrow column (an
+             item has four cells): here every answer is its own row. */
+          .app.calc-mode .results-feed { display: block; max-height: none; }
+          .app.calc-mode .rf-item { display: grid; grid-template-columns: minmax(0, 1fr) 16px minmax(0, auto) auto; align-items: center; gap: 4px; padding: 4px 2px; border-bottom: 1px solid var(--bd); }
+          .app.calc-mode .rf-ans { text-align: right; overflow-wrap: anywhere; }
+        `;
+        document.head.appendChild(cStyle);
+      }
+
       // ─── Question mode: ?question=1 ───
       // A graph a question's student types into (imathas-nx, in place of a
       // Desmos calculator): the expression input and the student's rows over
@@ -14612,6 +14639,41 @@ setTimeout(() => DataLists.updateAllUI(), 50);
       window._kalcListAliases = Object.keys(out).length ? out : null;
     },
 
+    // ── Clicks on the graph: { on: true, replyTo } ──
+    // A page whose question is "click the graph" (imathas-nx, for Desmos
+    // questions that read clicks on the calculator) hears every plain click
+    // — not a pan or a drag — as { type: replyTo, x, y } in graph
+    // coordinates. { on: false } stops it.
+    'kovalna-clicks': function(msg) {
+      _clickReply = msg && msg.on !== false && msg.replyTo ? String(msg.replyTo) : null;
+      if (_clickReply && !_clickBound) {
+        _clickBound = true;
+        // On the document, in the capture phase: the canvas is redrawn and
+        // re-made, and layers (trace, sketch, controls) sit over it, so a
+        // listener on the canvas itself never heard a click. A click counts
+        // when it lands inside the canvas's box and not on a control.
+        let down = null;
+        const onGraph = (e) => {
+          if (!Graph.canvas || (e.target.closest && e.target.closest('button, .graph-controls, .ge-style-pop'))) return null;
+          const r = Graph.canvas.getBoundingClientRect();
+          if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) return null;
+          return r;
+        };
+        document.addEventListener('pointerdown', (e) => { down = onGraph(e) ? { x: e.clientX, y: e.clientY } : null; }, true);
+        document.addEventListener('pointerup', (e) => {
+          if (!_clickReply || !down || !window.parent || window.parent === window) return;
+          const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
+          down = null;
+          if (moved > 4) return; // a pan or a drag, not a click
+          const r = onGraph(e);
+          if (!r) return;
+          const x = Graph.xMin + (e.clientX - r.left) / r.width * (Graph.xMax - Graph.xMin);
+          const y = Graph.yMax - (e.clientY - r.top) / r.height * (Graph.yMax - Graph.yMin);
+          window.parent.postMessage({ type: _clickReply, x: x, y: y }, '*');
+        }, true);
+      }
+    },
+
     // ── List every expression (tagged by the parent or typed by the student) ──
     'kovalna-list': function(msg) {
       if (!msg.replyTo || !window.parent) return;
@@ -14650,6 +14712,7 @@ setTimeout(() => DataLists.updateAllUI(), 50);
   // ─── Watcher system ───
   // Maps tag → replyTo channel. Fires when a watched expression changes.
   const _watchers = {};
+  let _clickReply = null, _clickBound = false;
 
   // What a parent sees of each expression: its tag (null = the student typed
   // it), the source text, its LaTeX, and how it's drawn.
