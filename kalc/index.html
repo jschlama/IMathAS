@@ -7986,7 +7986,7 @@ const Graph = {
     const RECIP = { sec: 'cos', csc: 'sin', cot: 'tan' };
     let e = src, guard = 0;
     for (;;) {
-      const m = /(?<![A-Za-z0-9_.])(sec|csc|cot)\s*\(/.exec(e);
+      const m = /(?<![A-Za-z_.])(sec|csc|cot)\s*\(/.exec(e);
       if (!m || ++guard > 200) return e;
       const open = m.index + m[0].length - 1;
       let depth = 0, close = -1;
@@ -9177,6 +9177,18 @@ const Graph = {
       del.onclick = () => this.remove(entry.id);
       row.appendChild(del);
 
+      // A row the embedding page GIVES (kovalna-add fixed: true — a question's
+      // point, asymptote or reference curve): listed, drawn and traced like any
+      // other, but the student cannot hide, restyle, retype or delete it.
+      if (entry._fixed) {
+        row.classList.add('ge-fixed');
+        styleBtn.disabled = true; styleBtn.style.visibility = 'hidden';
+        toggle.disabled = true; toggle.onclick = (e) => e.stopPropagation();
+        toggle.title = ''; toggle.style.cursor = 'default';
+        labelWrap.onclick = null; labelWrap.style.cursor = 'default';
+        del.remove();
+      }
+
       // Style popover
       const pop = document.createElement('div');
       pop.className = 'ge-style-pop';
@@ -9403,6 +9415,7 @@ const Graph = {
           sliderWrap.appendChild(sRow);
         });
         this.listEl.appendChild(sliderWrap);
+        if (entry._fixed) sliderWrap.querySelectorAll('input, button').forEach((n) => { n.disabled = true; });
       }
 
       // ─── Riemann rectangle-count slider ───
@@ -11448,7 +11461,7 @@ const Graph = {
     const xr = this.xMax - this.xMin, yr = this.yMax - this.yMin;
     let best = null, bestD = radius;
     this.expressions.forEach((e) => {
-      if (!e.visible || !e.scatterData || !e._draggable || e.isResidual) return;
+      if (!e.visible || !e.scatterData || !e._draggable || e._fixed || e.isResidual) return;
       e.scatterData.xs.forEach((x, i) => {
         const sx = (x - this.xMin) / xr * w;
         const sy = h - (e.scatterData.ys[i] - this.yMin) / yr * h;
@@ -13943,7 +13956,7 @@ setTimeout(() => DataLists.updateAllUI(), 50);
           }
           if (msg.weight !== undefined) entry.lineWidth = msg.weight;
           if (msg.visible !== undefined) entry.visible = msg.visible;
-          if (msg.ghost !== undefined) entry._ghost = msg.ghost;
+          if (msg.ghost !== undefined) entry._ghost = msg.ghost; if (msg.fixed !== undefined) entry._fixed = !!msg.fixed;
           if (msg.eq) {
             // Re-compile the expression
             try {
@@ -13984,7 +13997,7 @@ setTimeout(() => DataLists.updateAllUI(), 50);
             }
             if (msg.weight !== undefined) newEntry.lineWidth = msg.weight;
             if (msg.visible !== undefined) newEntry.visible = msg.visible;
-            if (msg.ghost !== undefined) newEntry._ghost = msg.ghost;
+            if (msg.ghost !== undefined) newEntry._ghost = msg.ghost; if (msg.fixed !== undefined) newEntry._fixed = !!msg.fixed;
             // Labeled / open-style scatter points (for given-diagram point sets).
             if (msg.labels !== undefined) newEntry._ptLabels = msg.labels;
             if (msg.pointStyle !== undefined) newEntry._ptStyle = msg.pointStyle;
@@ -14017,7 +14030,7 @@ setTimeout(() => DataLists.updateAllUI(), 50);
               }
               if (msg.weight !== undefined) newEntry.lineWidth = msg.weight;
               if (msg.visible !== undefined) newEntry.visible = msg.visible;
-              if (msg.ghost !== undefined) newEntry._ghost = msg.ghost;
+              if (msg.ghost !== undefined) newEntry._ghost = msg.ghost; if (msg.fixed !== undefined) newEntry._fixed = !!msg.fixed;
               Graph.updateRows();
               Graph.render();
             }
@@ -14575,7 +14588,7 @@ setTimeout(() => DataLists.updateAllUI(), 50);
   function listExpressions() {
     return Graph.expressions.map(e => ({
       id: e.id, tag: e._tag || null, expr: e.expr || '', latex: e.latex || '',
-      visible: e.visible !== false, color: e.color || null, ghost: !!e._ghost
+      visible: e.visible !== false, color: e.color || null, ghost: !!e._ghost, fixed: !!e._fixed
     }));
   }
 
@@ -14592,7 +14605,7 @@ setTimeout(() => DataLists.updateAllUI(), 50);
     if (!Object.keys(_watchers).length) return;
     if (_watchers['*'] && window.parent) {
       const all = listExpressions();
-      const key = JSON.stringify(all.map(e => [e.id, e.tag, e.expr, e.visible, e.color, e.ghost]));
+      const key = JSON.stringify(all.map(e => [e.id, e.tag, e.expr, e.visible, e.color, e.ghost, e.fixed]));
       if (key !== _lastAllState) {
         _lastAllState = key;
         window.parent.postMessage({ type: _watchers['*'], tag: '*', expressions: all }, '*');
