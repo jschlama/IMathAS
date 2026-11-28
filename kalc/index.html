@@ -14582,7 +14582,13 @@ setTimeout(() => DataLists.updateAllUI(), 50);
   // Poll for changes to watched expressions (runs on Graph render)
   let _lastWatchState = {};
   let _lastAllState = null;
+  // While a parent's message is being handled, the graph renders in steps (an
+  // add draws the row, THEN tags it); a watcher reported from inside would see
+  // a half-made row — untagged, so a parent takes the author's own row for
+  // the student's. The dispatcher below reports once, after the handler.
+  let _inHandler = false;
   function checkWatchers() {
+    if (_inHandler) return;
     if (!Object.keys(_watchers).length) return;
     if (_watchers['*'] && window.parent) {
       const all = listExpressions();
@@ -14626,7 +14632,10 @@ setTimeout(() => DataLists.updateAllUI(), 50);
   window.addEventListener('message', function(e) {
     if (!e.data || typeof e.data !== 'object') return;
     const handler = handlers[e.data.type];
-    if (handler) handler(e.data);
+    if (!handler) return;
+    _inHandler = true;
+    try { handler(e.data); } finally { _inHandler = false; }
+    try { checkWatchers(); } catch (err) {}
   });
 
   // ─── Tell an embedding page the API is listening ───

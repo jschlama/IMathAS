@@ -1,5 +1,5 @@
 Kovalna Kalc, copied by tools/sync-kalc.sh
-source: jschlama/KOVALNA-2.0 @ fd91771d4b73ecf6f62ecb04c1a86d77c41ddaf8
+source: jschlama/KOVALNA-2.0 @ e3b08839ef4fad0c7d5cdef0a862e8391be6ae47
 KALC_EMBED_VERSION: 102
 
 Licences: the Kalc is KOVALNA's own. MathLive (lib/mathlive) is MIT; DM Sans and JetBrains Mono
